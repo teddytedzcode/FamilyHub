@@ -23,7 +23,7 @@
   </div>
 
   <script>
-  // React + ReactDOM (fully inlined — no network needed)
+  // React + ReactDOM (fully inlined)
 (function(global) {
   // Module registry
   var _modules = {};
@@ -17201,9 +17201,10 @@ exports.version = "19.2.4";
 
 })(typeof window !== 'undefined' ? window : globalThis);
 
-  // Teddy Family Hub App
+  // Teddy Family Hub
   (function() {
     function launch() {
+      console.log('[TFH] launch() called, window.supabase type:', typeof window.supabase);
       try {
  function _optionalChain(ops) { let lastAccessLHS = undefined; let value = ops[0]; let i = 1; while (i < ops.length) { const op = ops[i]; const fn = ops[i + 1]; i += 2; if ((op === 'optionalAccess' || op === 'optionalCall') && value == null) { return undefined; } if (op === 'access' || op === 'optionalAccess') { lastAccessLHS = value; value = fn(value); } else if (op === 'call' || op === 'optionalCall') { value = fn((...args) => value.call(lastAccessLHS, ...args)); lastAccessLHS = undefined; } } return value; }
     const { useState, useEffect, useRef, useCallback } = React;
@@ -17213,17 +17214,31 @@ exports.version = "19.2.4";
     const SUPABASE_URL = 'https://bkclhplehvncpjoqvakv.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrY2xocGxlaHZuY3Bqb3F2YWt2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MTQxMTMsImV4cCI6MjA5MDM5MDExM30.dRxsQJee_tgl-fN562aSpAf2hngSq_5HoZcuRRe-XG4';
     
-    const ONLINE_MODE = typeof window.supabase !== 'undefined' && window.supabase !== null && typeof window.supabase.createClient === 'function';
-    const supabase = ONLINE_MODE 
-      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
-      : null;
+    // ONLINE_MODE is a function so it's checked at call time, not parse time
+    function ONLINE_MODE() {
+      var result = typeof window.supabase !== 'undefined' && window.supabase !== null && typeof window.supabase.createClient === 'function';
+      return result;
+    }
+    // supabase client lazily created on first use
+    var _supabaseClient = null;
+    function getSupabase() {
+      if (!_supabaseClient && ONLINE_MODE()) {
+        _supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      }
+      return _supabaseClient;
+    }
+    var supabase = {
+      from: function(t) { var c = getSupabase(); return c ? c.from(t) : { select: function(){ return Promise.resolve({data:[],error:{message:'offline'}}); }, upsert: function(){ return Promise.resolve({error:null}); }, delete: function(){ return { eq: function(){ return Promise.resolve({error:null}); } }; }, eq: function(){ return { single: function(){ return Promise.resolve({data:null,error:{code:'PGRST116'}}); } }; } }; },
+      channel: function(n) { var c = getSupabase(); return c ? c.channel(n) : { on: function(){ return this; }, subscribe: function(){ return this; } }; },
+      removeChannel: function(ch) { var c = getSupabase(); if(c) c.removeChannel(ch); },
+    };
 
     // Tables we sync — each maps to a Supabase table
     const TABLES = ['members','tasks','events','transactions','recurring','notes','routines','app_state'];
 
     // ── DB HELPERS ───────────────────────────────────────────────────
     async function dbLoad() {
-      if (!ONLINE_MODE) return {};
+      if (!ONLINE_MODE()) return {};
       const results = {};
       await Promise.all(TABLES.map(async (t) => {
         const { data, error } = await supabase.from(t).select('*');
@@ -17237,7 +17252,7 @@ exports.version = "19.2.4";
     }
 
     async function dbSave(table, items) {
-      if (!ONLINE_MODE) return;
+      if (!ONLINE_MODE()) return;
       // Upsert all items as {id, data} rows
       const rows = Array.isArray(items)
         ? items.map(item => ({ id: item.id, data: item }))
@@ -17247,13 +17262,13 @@ exports.version = "19.2.4";
     }
 
     async function dbDelete(table, id) {
-      if (!ONLINE_MODE) return;
+      if (!ONLINE_MODE()) return;
       const { error } = await supabase.from(table).delete().eq('id', id);
       if (error) console.error('Delete error', table, error);
     }
 
     async function dbSaveAppState(key, value) {
-      if (!ONLINE_MODE) return;
+      if (!ONLINE_MODE()) return;
       const { error } = await supabase.from('app_state').upsert({ id: key, data: value }, { onConflict: 'id' });
       if (error) console.error('AppState error', error);
     }
@@ -17347,7 +17362,7 @@ exports.version = "19.2.4";
 
     function saveCodes(codes) {
       try { localStorage.setItem('fh_codes', JSON.stringify(codes)); } catch(e) {}
-      if (ONLINE_MODE) {
+      if (ONLINE_MODE()) {
         supabase.from('app_state').upsert({ id: 'access_codes', data: codes }, { onConflict: 'id' }).then(function(){});
       }
     }
@@ -17371,7 +17386,7 @@ exports.version = "19.2.4";
         var stored = getStoredCodes();
         setCodes(stored);
         setLoading(false);
-        if (ONLINE_MODE) {
+        if (ONLINE_MODE()) {
           supabase.from('app_state').select('*').eq('id','access_codes').then(function(res){
             if (res.data && res.data[0] && res.data[0].data) {
               var remote = res.data[0].data;
@@ -17509,15 +17524,20 @@ function FamilyApp() {
       useEffect(() => {
         async function load() {
           setSyncStatus("loading");
+          console.log('[TFH] Load starting, ONLINE_MODE:', ONLINE_MODE(), 'window.supabase:', typeof window.supabase);
           try {
             const rows = await dbLoad();
             // Offline mode or DB empty - use initialState
-            if (!ONLINE_MODE) {
+            console.log('[TFH] ONLINE_MODE check:', ONLINE_MODE());
+            if (!ONLINE_MODE()) {
+              console.log('[TFH] Going offline mode');
               setData(initialState);
               setSyncStatus("offline");
               return;
             }
+            console.log('[TFH] DB rows:', JSON.stringify(Object.keys(rows)));
             const hasData = rows.members && rows.members.length > 0;
+            console.log('[TFH] hasData:', hasData);
             if (!hasData) {
               // Seed all tables
               await Promise.all([
@@ -17547,7 +17567,7 @@ function FamilyApp() {
             }
             setSyncStatus("ok");
           } catch(e) {
-            console.error(e);
+            console.error('[TFH] Load error:', e);
             setSyncStatus("error");
             setData(initialState);
           }
@@ -17558,7 +17578,7 @@ function FamilyApp() {
       // ── REAL-TIME SUBSCRIPTIONS ──────────────────────────────────
       useEffect(() => {
         if (!data) return;
-        if (!ONLINE_MODE) return;
+        if (!ONLINE_MODE()) return;
         const channels = ['members','tasks','events','transactions','recurring','notes','routines'].map(table => {
           return supabase.channel(`realtime-${table}`)
             .on('postgres_changes', { event: '*', schema: 'public', table }, async () => {
@@ -17590,7 +17610,7 @@ function FamilyApp() {
             }));
             setSyncStatus("ok");
           } catch(e) {
-            console.error(e);
+            console.error('[TFH] Load error:', e);
             setSyncStatus("error");
           }
         }, 600);
@@ -19172,18 +19192,24 @@ function EditTransactionModal({ tx, data, close, save }) {
           '<h2 style="color:#2D5016">Teddy Family Hub</h2>' +
           '<p style="color:#C0392B">Error: ' + err.message + '</p>' +
           '<button onclick="location.reload()" style="margin-top:16px;padding:10px 24px;background:#2D5016;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer">Reload</button></div>';
-        console.error('Teddy Family Hub error:', err);
+        console.error('[TFH] Launch error:', err);
       }
     }
 
-    // Try loading Supabase for live sync — app works either way
     var done = false;
-    function go() { if (!done) { done = true; launch(); } }
+    function go() {
+      if (!done) {
+        done = true;
+        console.log('[TFH] go() called, supabase available:', typeof window.supabase !== "undefined");
+        launch();
+      }
+    }
     var s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
-    s.onload = go; s.onerror = go;
+    s.onload = function() { console.log('[TFH] Supabase CDN loaded'); go(); };
+    s.onerror = function() { console.log('[TFH] Supabase CDN failed - going offline'); go(); };
     document.head.appendChild(s);
-    setTimeout(go, 5000);
+    setTimeout(function() { console.log('[TFH] Timeout fallback'); go(); }, 5000);
   })();
   </script>
 </body>
