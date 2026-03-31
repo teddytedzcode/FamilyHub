@@ -17363,7 +17363,7 @@ exports.version = "19.2.4";
     function saveCodes(codes) {
       try { localStorage.setItem('fh_codes', JSON.stringify(codes)); } catch(e) {}
       if (ONLINE_MODE()) {
-        supabase.from('app_state').upsert({ id: 'access_codes', data: codes }, { onConflict: 'id' }).then(function(){});
+        supabase.from('app_state').upsert({ key: 'access_codes', value: codes }, { onConflict: 'key' }).then(function(){});
       }
     }
 
@@ -17387,9 +17387,9 @@ exports.version = "19.2.4";
         setCodes(stored);
         setLoading(false);
         if (ONLINE_MODE()) {
-          supabase.from('app_state').select('*').eq('id','access_codes').then(function(res){
-            if (res.data && res.data[0] && res.data[0].data) {
-              var remote = res.data[0].data;
+          supabase.from('app_state').select('*').eq('key','access_codes').then(function(res){
+            if (res.data && res.data[0] && res.data[0].value) {
+              var remote = res.data[0].value;
               localStorage.setItem('fh_codes', JSON.stringify(remote));
               setCodes(remote);
             }
@@ -17692,7 +17692,7 @@ function FamilyApp() {
       const totalIncome = data.transactions.filter(t => t.amount > 0).reduce((s,t) => s+t.amount, 0);
       const totalExpenses = Math.abs(data.transactions.filter(t => t.amount < 0).reduce((s,t) => s+t.amount, 0));
       const balance = totalIncome - totalExpenses;
-      const upcomingEvents = [...data.events].sort((a,b) => a.date.localeCompare(b.date)).slice(0,3);
+      const upcomingEvents = [...data.events].sort((a,b) => b.date.localeCompare(a.date)).slice(0,3);
       const pendingTasks = data.tasks.filter(t => !t.done);
 
       const syncDotStyle = {
@@ -18127,7 +18127,7 @@ function Calendar({ data, setData, setModal }) {
         , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 4 },}, "All Events" )
         , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 12 },}, "← Swipe left to edit or delete"      )
         , data.events.length === 0 && React.createElement(Empty, { text: "No events yet"  ,} )
-        , [...data.events].sort((a, b) => a.date.localeCompare(b.date)).map(ev => (
+        , [...data.events].sort((a, b) => b.date.localeCompare(a.date)).map(ev => (
           React.createElement(EventRow, { key: ev.id, ev: ev, data: data,
             onEdit: () => setEditingEvent(ev),
             onDelete: () => deleteEvent(ev.id),}
