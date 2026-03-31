@@ -17269,14 +17269,14 @@ exports.version = "19.2.4";
 
     async function dbSaveAppState(key, value) {
       if (!ONLINE_MODE()) return;
-      const { error } = await supabase.from('app_state').upsert({ id: key, data: value }, { onConflict: 'id' });
+      const { error } = await supabase.from('app_state').upsert({ key: key, value: value }, { onConflict: 'key' });
       if (error) console.error('AppState error', error);
     }
 
     async function dbLoadAppState(key) {
-      const { data, error } = await supabase.from('app_state').select('*').eq('id', key).single();
+      const { data, error } = await supabase.from('app_state').select('*').eq('key', key).single();
       if (error || !data) return null;
-      return data.data;
+      return data.value;
     }
 
     // ── INITIAL FALLBACK DATA ────────────────────────────────────────
@@ -17614,6 +17614,21 @@ function FamilyApp() {
             setSyncStatus("error");
           }
         }, 600);
+      }, []);
+
+      // ── FLUSH PENDING SAVES BEFORE PAGE UNLOAD ───────────────────
+      useEffect(() => {
+        const flush = () => {
+          clearTimeout(syncTimer.current);
+          const queue = { ...syncQueue.current };
+          syncQueue.current = {};
+          Object.entries(queue).forEach(([t, { items, deletedIds }]) => {
+            if (items) dbSave(t, items);
+            if (deletedIds) deletedIds.forEach(id => dbDelete(t, id));
+          });
+        };
+        window.addEventListener('beforeunload', flush);
+        return () => window.removeEventListener('beforeunload', flush);
       }, []);
 
       // ── SMART setData THAT ALSO SYNCS ────────────────────────────
