@@ -17349,7 +17349,10 @@ exports.version = "19.2.4";
     // ══════════════════════════════════════════════════════════════
     // AUTH CODE SYSTEM
     // ══════════════════════════════════════════════════════════════
-    var _TODAY = new Date().toISOString().slice(0,10);
+    function getUKToday() {
+      return new Date().toLocaleDateString('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-');
+    }
+    var _TODAY = getUKToday();
     var DEFAULT_CODES = [
       { id: 'admin', code: 'FAMILY2026', role: 'admin', label: 'Admin (you)', active: true },
       { id: 'guest1', code: 'HOME2026', role: 'member', label: 'Family Member', active: true },
@@ -17659,15 +17662,17 @@ function FamilyApp() {
       // ── RECURRING AUTO-APPLY ─────────────────────────────────────
       useEffect(() => {
         if (!data) return;
-        const today = new Date();
-        const currentYM = ym(today.getFullYear(), today.getMonth());
+        const todayUK = getUKToday();
+        const ukYear = parseInt(todayUK.slice(0,4));
+        const ukMonth = parseInt(todayUK.slice(5,7)) - 1;
+        const currentYM = ym(ukYear, ukMonth);
         const applied = new Set(data.recurringApplied || []);
         if (applied.has(currentYM)) return;
         const activeRecurring = data.recurring.filter(r => r.active);
         const newTransactions = activeRecurring.map(r => ({
           id: Date.now() + r.id + Math.random(),
           desc: r.desc, amount: -Math.abs(r.amount), category: r.category,
-          date: `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(r.dayOfMonth).padStart(2,"0")}`,
+          date: `${ukYear}-${String(ukMonth+1).padStart(2,"0")}-${String(r.dayOfMonth).padStart(2,"0")}`,
           member: r.member, recurring: true,
         }));
         if (newTransactions.length > 0) {
@@ -18819,7 +18824,7 @@ function AddEventModal({ data, setData, close }) {
 }
 
 function AddTransactionModal({ data, setData, close }) {
-  const [form, setForm] = useState({ desc: "", amount: "", category: "groceries", date: new Date().toISOString().slice(0,10), member: _optionalChain([data, 'access', _16 => _16.members, 'access', _17 => _17[0], 'optionalAccess', _18 => _18.id]) || 1, type: "expense", receipt: null });
+  const [form, setForm] = useState({ desc: "", amount: "", category: "groceries", date: getUKToday(), member: _optionalChain([data, 'access', _16 => _16.members, 'access', _17 => _17[0], 'optionalAccess', _18 => _18.id]) || 1, type: "expense", receipt: null });
 
   const handleReceipt = (e) => {
     const file = e.target.files[0];
