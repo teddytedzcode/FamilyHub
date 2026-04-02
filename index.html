@@ -7,10 +7,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Teddy Family Hub" />
   <title>🏡 Teddy Family Hub</title>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     html,body,#root{margin:0;padding:0;min-height:100%;}
-    body{font-family:'DM Sans',sans-serif;background:#F9F6F0;}
+    body{font-family:'Plus Jakarta Sans','DM Sans',sans-serif;background:#F0F4FF;}
     *{box-sizing:border-box;}
   </style>
 </head>
@@ -17329,13 +17329,14 @@ exports.version = "19.2.4";
 
 
     const COLORS = {
-      bg: "#F9F6F0", card: "#FFFFFF", primary: "#2D5016", accent: "#E8A020",
-      soft: "#F0EAD6", danger: "#C0392B", success: "#27AE60",
-      text: "#1A1A1A", muted: "#6B6B6B", border: "#E0D8C8",
+      bg: "#F0F4FF", card: "#FFFFFF", primary: "#4F46E5", accent: "#F59E0B",
+      soft: "#EEF2FF", danger: "#EF4444", success: "#10B981",
+      text: "#0F172A", muted: "#64748B", border: "#E2E8F0",
+      primary2: "#7C3AED", gradStart: "#4F46E5", gradEnd: "#7C3AED",
     };
     const FONT = {
-      display: "'Playfair Display', Georgia, serif",
-      body: "'DM Sans', 'Segoe UI', sans-serif",
+      display: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
+      body: "'Plus Jakarta Sans', 'DM Sans', 'Segoe UI', sans-serif",
     };
     const categoryIcons = {
       groceries:"🛒", income:"💰", "family pot":"🫙", kids:"👶",
@@ -17409,26 +17410,26 @@ exports.version = "19.2.4";
       };
 
       return (
-        React.createElement('div', { style: { display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#F9F6F0', fontFamily:"'DM Sans',sans-serif" },}
-          , React.createElement('div', { style: { background:'#fff', borderRadius:20, padding:'40px 28px', width:'90%', maxWidth:380, boxShadow:'0 8px 40px rgba(0,0,0,0.12)', textAlign:'center' },}
-            , React.createElement('div', { style: { fontSize:52, marginBottom:8 },}, "🏡")
-            , React.createElement('div', { style: { fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:700, color:'#2D5016', marginBottom:4 },}, "Teddy Family Hub"  )
-            , React.createElement('div', { style: { fontSize:13, color:'#6B6B6B', marginBottom:28 },}, "Enter your access code to continue"     )
+        React.createElement('div', { style: { display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)', fontFamily:"'Plus Jakarta Sans','DM Sans',sans-serif" },}
+          , React.createElement('div', { style: { background:'#fff', borderRadius:24, padding:'40px 32px', width:'90%', maxWidth:380, boxShadow:'0 32px 80px rgba(79,70,229,0.3)', textAlign:'center' },}
+            , React.createElement('div', { style: { width:72, height:72, borderRadius:20, background:'linear-gradient(135deg,#4F46E5,#7C3AED)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36, margin:'0 auto 16px' },}, "🏡")
+            , React.createElement('div', { style: { fontSize:24, fontWeight:800, color:'#0F172A', marginBottom:4 },}, "Teddy Family Hub")
+            , React.createElement('div', { style: { fontSize:13, color:'#64748B', marginBottom:28 },}, "Enter your access code to continue")
             , React.createElement('input', {
-              type: "text", value: input, placeholder: "Enter code" ,
+              type: "text", value: input, placeholder: "ENTER CODE",
               onChange: e => { setInput(e.target.value.toUpperCase()); setError(''); },
               onKeyDown: e => e.key === 'Enter' && handleSubmit(),
-              style: { width:'100%', padding:'14px 16px', fontSize:20, textAlign:'center', letterSpacing:4,
-                fontWeight:700, border:'2px solid #E0D8C8', borderRadius:10, outline:'none',
-                background:'#FAFAFA', marginBottom:8, textTransform:'uppercase', boxSizing:'border-box' },}
+              style: { width:'100%', padding:'14px 16px', fontSize:22, textAlign:'center', letterSpacing:6,
+                fontWeight:800, border:'2px solid #E2E8F0', borderRadius:12, outline:'none',
+                background:'#F8FAFC', marginBottom:8, textTransform:'uppercase', boxSizing:'border-box', transition:'border-color 0.15s' },}
             )
-            , error && React.createElement('div', { style: { color:'#C0392B', fontSize:13, marginBottom:8 },}, error)
+            , error && React.createElement('div', { style: { color:'#EF4444', fontSize:13, marginBottom:8, fontWeight:600 },}, error)
             , React.createElement('button', { onClick: handleSubmit, disabled: loading,
-              style: { width:'100%', padding:'14px 0', background:'#2D5016', color:'#fff',
-                border:'none', borderRadius:10, fontSize:16, fontWeight:700, cursor:'pointer', marginTop:8 },}
-              , loading ? 'Loading...' : 'Enter Teddy Family Hub'
+              style: { width:'100%', padding:'14px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff',
+                border:'none', borderRadius:12, fontSize:16, fontWeight:700, cursor:'pointer', marginTop:8, boxShadow:'0 4px 16px rgba(79,70,229,0.35)', transition:'all 0.2s' },}
+              , loading ? 'Loading…' : 'Enter Teddy Family Hub'
             )
-            , React.createElement('div', { style: { marginTop:16, fontSize:12, color:'#B0A890' },}, "Ask your family admin for a code"      )
+            , React.createElement('div', { style: { marginTop:18, fontSize:12, color:'#94A3B8' },}, "Ask your family admin for a code")
           )
         )
       );
@@ -17711,31 +17712,36 @@ function FamilyApp() {
       return (
         React.createElement('div', { style: { fontFamily:FONT.body, background:COLORS.bg, minHeight:"100vh", color:COLORS.text },}
           , React.createElement('style', null, `
-            @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
             * { box-sizing:border-box; margin:0; padding:0; }
             button { cursor:pointer; font-family:inherit; }
             input,select,textarea { font-family:inherit; }
             .tab-btn { transition:all 0.2s; }
-            .tab-btn:hover { background:rgba(45,80,22,0.08) !important; }
-            .card { transition:box-shadow 0.2s; }
-            .card:hover { box-shadow:0 4px 20px rgba(0,0,0,0.10) !important; }
-            .task-row:hover { background:#F8F5EF; }
-            .pill { display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500; }
-            .btn-primary { background:#2D5016;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-weight:600;font-size:14px;transition:background 0.2s; }
-            .btn-primary:hover { background:#3d6b1e; }
-            .btn-soft { background:#F0EAD6;color:#2D5016;border:none;border-radius:8px;padding:8px 18px;font-weight:600;font-size:14px; }
-            .overlay { position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:100;display:flex;align-items:center;justify-content:center; }
-            .modal { background:#fff;border-radius:16px;padding:28px;width:90%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2); }
-            input[type=text],input[type=number],input[type=date],input[type=time],select,textarea { width:100%;padding:9px 12px;border:1.5px solid #E0D8C8;border-radius:8px;font-size:14px;outline:none;background:#FAFAFA;transition:border-color 0.15s; }
-            input:focus,select:focus,textarea:focus { border-color:#2D5016;background:#fff; }
-            label { font-size:13px;font-weight:600;color:#444;display:block;margin-bottom:4px;margin-top:12px; }
-            .progress-bar { height:7px;border-radius:999px;background:#E0D8C8;overflow:hidden;margin-top:5px; }
-            .progress-fill { height:100%;border-radius:999px;transition:width 0.5s; }
-            ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-thumb { background:#E0D8C8;border-radius:99px; }
+            .tab-btn:hover { background:rgba(79,70,229,0.08) !important; }
+            .card { transition:box-shadow 0.2s, transform 0.15s; }
+            .card:hover { box-shadow:0 8px 32px rgba(79,70,229,0.12) !important; }
+            .task-row:hover { background:#F8F7FF; }
+            .pill { display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600; }
+            .btn-primary { background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;border:none;border-radius:10px;padding:9px 20px;font-weight:700;font-size:14px;transition:all 0.2s;box-shadow:0 2px 8px rgba(79,70,229,0.3); }
+            .btn-primary:hover { transform:translateY(-1px);box-shadow:0 4px 16px rgba(79,70,229,0.4); }
+            .btn-soft { background:#EEF2FF;color:#4F46E5;border:none;border-radius:10px;padding:9px 18px;font-weight:600;font-size:14px;transition:all 0.2s; }
+            .btn-soft:hover { background:#E0E7FF; }
+            .overlay { position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px); }
+            .modal { background:#fff;border-radius:20px;padding:28px;width:90%;max-width:420px;box-shadow:0 24px 80px rgba(79,70,229,0.18); }
+            input[type=text],input[type=number],input[type=date],input[type=time],select,textarea { width:100%;padding:10px 14px;border:1.5px solid #E2E8F0;border-radius:10px;font-size:14px;outline:none;background:#F8FAFC;transition:border-color 0.15s,box-shadow 0.15s; }
+            input:focus,select:focus,textarea:focus { border-color:#4F46E5;background:#fff;box-shadow:0 0 0 3px rgba(79,70,229,0.12); }
+            label { font-size:13px;font-weight:600;color:#334155;display:block;margin-bottom:4px;margin-top:12px; }
+            .progress-bar { height:8px;border-radius:999px;background:#E2E8F0;overflow:hidden;margin-top:6px; }
+            .progress-fill { height:100%;border-radius:999px;transition:width 0.6s cubic-bezier(.4,0,.2,1); }
+            ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-thumb { background:#C7D2FE;border-radius:99px; }
             @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+            @keyframes slideDown { from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)} }
+            .expand-panel { animation:slideDown 0.2s ease; }
+            .row-clickable { cursor:pointer; transition:background 0.15s; }
+            .row-clickable:hover { background:#F8F7FF !important; }
           `)
 
-          , React.createElement('header', { style: { background:COLORS.primary, padding:"16px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" },}
+          , React.createElement('header', { style: { background:"linear-gradient(135deg, #1A0533 0%, #0D0120 100%)", padding:"18px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 4px 24px rgba(13,1,32,0.5)" },}
             , React.createElement('div', null
               , React.createElement('div', { style: { fontFamily:FONT.display, fontSize:22, color:"#fff", fontWeight:700, display:"flex", alignItems:"center" },}, "🏡 Teddy Family Hub"
 
@@ -17755,10 +17761,10 @@ function FamilyApp() {
           )
 
           
-              , showCodes && React.createElement(CodeManager, { onClose: function(){ setShowCodes(false); } }), React.createElement('nav', { style: { background:"#fff", borderBottom:`1px solid ${COLORS.border}`, display:"flex", overflowX:"auto", padding:"0 8px" },}
+              , showCodes && React.createElement(CodeManager, { onClose: function(){ setShowCodes(false); } }), React.createElement('nav', { style: { background:"#fff", borderBottom:`1px solid ${COLORS.border}`, display:"flex", overflowX:"auto", padding:"0 8px", boxShadow:"0 2px 8px rgba(107,30,46,0.06)" },}
             , TABS.map(t => (
               React.createElement('button', { key: t, className: "tab-btn", onClick: () => setTab(t), style: {
-                padding:"13px 16px", border:"none", background:"none", fontSize:13, fontWeight:600,
+                padding:"14px 16px", border:"none", background:"none", fontSize:13, fontWeight:600,
                 color:tab===t ? COLORS.primary : COLORS.muted,
                 borderBottom:tab===t ? `2.5px solid ${COLORS.primary}` : "2.5px solid transparent",
                 whiteSpace:"nowrap",
@@ -17825,40 +17831,34 @@ function Dashboard({ data, upcomingEvents, pendingTasks, totalIncome, totalExpen
       )
 
       /* Finance summary cards */
-      , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },}
-        , React.createElement('div', { onClick: () => setFilterCard(f => f === "pot" ? null : "pot"), className: "card", style: { background: filterCard === "pot" ? "#EFF7E8" : "#fff", borderRadius: 14, padding: "18px 12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center", cursor: "pointer", border: filterCard === "pot" ? `2px solid ${COLORS.primary}` : "2px solid transparent" },}
-          , React.createElement('div', { style: { fontSize: 24 },}, "🫙")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.success, marginTop: 4 },}, "£", monthIncome.toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Family Pot" )
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.primary, background: COLORS.soft, borderRadius: 4, padding: "1px 5px" },}, shortMonth)
-          )
+      , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 },}
+        , React.createElement('div', { onClick: () => setFilterCard(f => f === "pot" ? null : "pot"), className: "card", style: { background: filterCard === "pot" ? "#EEF2FF" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "pot" ? "0 4px 20px rgba(79,70,229,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "pot" ? `2px solid ${COLORS.primary}` : "2px solid transparent", transition: "all 0.2s" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🫙")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.success },}, "£", monthIncome.toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Family Pot")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.primary, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
-        , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF0F0" : "#fff", borderRadius: 14, padding: "18px 12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent" },}
-          , React.createElement('div', { style: { fontSize: 24 },}, "💷")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.danger, marginTop: 4 },}, "£", monthExpenses.toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Expenses")
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.danger, background: "#FEF0F0", borderRadius: 4, padding: "1px 5px" },}, shortMonth)
-          )
+        , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF2F2" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "expenses" ? "0 4px 20px rgba(239,68,68,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent", transition: "all 0.2s" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "💸")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.danger },}, "£", monthExpenses.toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Expenses")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.danger, background: "#FEF2F2", borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
-        , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: "18px 12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" },}
-          , React.createElement('div', { style: { fontSize: 24 },}, "🏦")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: allTimeBalance >= 0 ? COLORS.primary : COLORS.danger, marginTop: 4 },}, "£", Math.abs(allTimeBalance).toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Balance")
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.muted, background: COLORS.soft, borderRadius: 4, padding: "1px 5px" },}, "overall")
-          )
+        , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🏦")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: allTimeBalance >= 0 ? COLORS.success : COLORS.danger },}, allTimeBalance >= 0 ? "+" : "-", "£", Math.abs(allTimeBalance).toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Balance")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "all time")
         )
       )
 
       /* Filtered transaction table */
       , filterCard && (
-        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 15, fontWeight: 700, marginBottom: 10 },}
-            , filterCard === "pot" ? "🫙 Family Pot" : "💷 Expenses", " — "  , shortMonth
+        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+          , React.createElement('div', { style: { fontSize: 15, fontWeight: 700, marginBottom: 12, color: COLORS.text },}
+            , filterCard === "pot" ? "🫙 Family Pot" : "💸 Expenses", " — ", shortMonth
           )
-          , filteredTx.length === 0 && React.createElement(Empty, { text: "No transactions this month"   ,} )
+          , filteredTx.length === 0 && React.createElement(Empty, { text: "No transactions this month",} )
           , [...filteredTx].sort((a, b) => b.date.localeCompare(a.date)).map(tx => (
             React.createElement(TxRow, { key: tx.id, tx: tx, data: data,} )
           ))
@@ -17919,10 +17919,10 @@ function Dashboard({ data, upcomingEvents, pendingTasks, totalIncome, totalExpen
 
 function Section({ title, action, onAction, children }) {
   return (
-    React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-      , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },}
-        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700 },}, title)
-        , action && React.createElement('button', { className: "btn-soft", onClick: onAction, style: { padding: "5px 12px", fontSize: 12 },}, action)
+    React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+      , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },}
+        , React.createElement('div', { style: { fontSize: 15, fontWeight: 700, color: COLORS.text },}, title)
+        , action && React.createElement('button', { className: "btn-soft", onClick: onAction, style: { padding: "5px 14px", fontSize: 12 },}, action)
       )
       , children
     )
@@ -17931,14 +17931,17 @@ function Section({ title, action, onAction, children }) {
 
 function TaskRowSimple({ task, data }) {
   const member = data.members.find(m => m.id === task.assignee);
+  const isOverdue = !task.done && task.due && task.due < _TODAY;
   return (
-    React.createElement('div', { className: "task-row", style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: `1px solid ${COLORS.border}`, borderRadius: 6 },}
-      , React.createElement('span', { style: { fontSize: 16 },}, categoryIcons[task.category] || "📌")
-      , React.createElement('div', { style: { flex: 1 },}
-        , React.createElement('div', { style: { fontSize: 14, fontWeight: 500 },}, task.title)
-        , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted },}, "Due " , task.due)
+    React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${COLORS.border}` },}
+      , React.createElement('div', { style: { width: 34, height: 34, borderRadius: 9, background: isOverdue ? '#FEF2F2' : COLORS.soft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 },}
+        , categoryIcons[task.category] || "📌"
       )
-      , member && React.createElement('span', { style: { fontSize: 15 },}, member.emoji)
+      , React.createElement('div', { style: { flex: 1 },}
+        , React.createElement('div', { style: { fontSize: 14, fontWeight: 600, color: COLORS.text },}, task.title)
+        , React.createElement('div', { style: { fontSize: 12, color: isOverdue ? COLORS.danger : COLORS.muted, marginTop: 1 },}, isOverdue ? "⚠️ Overdue · " : "Due · ", task.due)
+      )
+      , member && React.createElement('span', { style: { fontSize: 18 },}, member.emoji)
     )
   );
 }
@@ -17998,56 +18001,118 @@ function SwipeableRow({ onEdit, onDelete, children, accentColor = COLORS.danger 
 
 function TxRow({ tx, data, onEdit, onDelete }) {
   const member = data.members.find(m => m.id === tx.member);
+  const [expanded, setExpanded] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
 
   const inner = (
-    React.createElement('div', { style: { borderBottom: `1px solid ${COLORS.border}` },}
-      , React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0" },}
-        , React.createElement('span', { style: { fontSize: 18 },}, categoryIcons[tx.category] || "📦")
-        , React.createElement('div', { style: { flex: 1 },}
-          , React.createElement('div', { style: { fontSize: 14, fontWeight: 500 },}, tx.desc)
-          , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, display: "flex", alignItems: "center", gap: 6 },}
-            , tx.date
-            , tx.receipt && (
-              React.createElement('button', { onClick: (e) => { e.stopPropagation(); setShowReceipt(v => !v); }, style: { background: "none", border: "none", fontSize: 11, color: COLORS.primary, fontWeight: 600, cursor: "pointer", padding: 0 },}, "🧾 "
-                 , showReceipt ? "Hide" : "View", " receipt"
-              )
+    React.createElement('div', { style: { borderRadius:12, marginBottom:6, overflow:'hidden', border:`1px solid ${COLORS.border}`, background:'#fff' } }
+      , React.createElement('div', { className:'row-clickable', onClick:() => setExpanded(v => !v),
+          style:{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background: expanded ? '#F8F7FF' : '#fff' } }
+        , React.createElement('div', { style:{ width:40, height:40, borderRadius:10, background: tx.amount < 0 ? '#FEF2F2' : '#ECFDF5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 } }
+          , categoryIcons[tx.category] || "📦"
+        )
+        , React.createElement('div', { style:{ flex:1, minWidth:0 } }
+          , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color:COLORS.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, tx.desc)
+          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, tx.date, ' · ', React.createElement('span', { className:'pill', style:{ background:COLORS.soft, color:COLORS.primary } }, tx.category))
+        )
+        , React.createElement('div', { style:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2 } }
+          , React.createElement('div', { style:{ fontSize:15, fontWeight:700, color: tx.amount < 0 ? COLORS.danger : COLORS.success } }
+            , tx.amount < 0 ? '-' : '+', '£', Math.abs(tx.amount).toFixed(2)
+          )
+          , member && React.createElement('span', { style:{ fontSize:13 } }, member.photo ? React.createElement('img', { src:member.photo, alt:'', style:{ width:18, height:18, borderRadius:'50%', objectFit:'cover' } }) : member.emoji)
+        )
+        , React.createElement('span', { style:{ fontSize:12, color:COLORS.muted, marginLeft:4, flexShrink:0 } }, expanded ? '▲' : '▼')
+      )
+      , expanded && React.createElement('div', { className:'expand-panel', style:{ padding:'12px 14px', background:'#F8F7FF', borderTop:`1px solid ${COLORS.border}` } }
+        , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, tx.date)
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, tx.category)
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Amount')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:700, color: tx.amount < 0 ? COLORS.danger : COLORS.success, marginTop:2 } }
+              , tx.amount < 0 ? '-' : '+', '£', Math.abs(tx.amount).toFixed(2)
             )
           )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Member')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, member ? `${member.emoji} ${member.name}` : '—')
+          )
         )
-        , React.createElement('div', { style: { fontSize: 14, fontWeight: 700, color: tx.amount < 0 ? COLORS.danger : COLORS.success },}
-          , tx.amount < 0 ? "-" : "+", "£", Math.abs(tx.amount).toFixed(2)
+        , tx.receipt && React.createElement('div', { style:{ marginBottom:8 } }
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); setShowReceipt(v=>!v); }, style:{ background:'none', border:`1.5px solid ${COLORS.primary}`, borderRadius:8, padding:'4px 12px', fontSize:12, color:COLORS.primary, fontWeight:600, cursor:'pointer' } }
+            , '🧾 ', showReceipt ? 'Hide Receipt' : 'View Receipt'
+          )
+          , showReceipt && React.createElement('img', { src:tx.receipt, alt:'receipt', style:{ display:'block', maxWidth:'100%', maxHeight:200, borderRadius:8, marginTop:8, border:`1px solid ${COLORS.border}` } })
         )
-        , member && React.createElement('span', { style: { fontSize: 14 },}, member.photo ? React.createElement('img', { src: member.photo, alt: "", style: { width: 20, height: 20, borderRadius: "50%", objectFit: "cover" },} ) : member.emoji)
-      )
-      , showReceipt && tx.receipt && (
-        React.createElement('div', { style: { padding: "0 0 10px 28px" },}
-          , React.createElement('img', { src: tx.receipt, alt: "receipt", style: { maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: `1px solid ${COLORS.border}` },} )
+        , onEdit && onDelete && React.createElement('div', { style:{ display:'flex', gap:8 } }
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); onEdit(); }, style:{ flex:1, padding:'8px 0', background:COLORS.primary, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '✏️ Edit')
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); onDelete(); }, style:{ flex:1, padding:'8px 0', background:COLORS.danger, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '🗑️ Delete')
         )
       )
     )
   );
 
-  if (onEdit && onDelete) {
-    return React.createElement(SwipeableRow, { onEdit: onEdit, onDelete: onDelete,}, inner);
-  }
   return inner;
 }
 
 function FullTaskRow({ task, data, toggle, del, onEdit }) {
   const member = data.members.find(m => m.id === task.assignee);
+  const [expanded, setExpanded] = useState(false);
+  const isOverdue = !task.done && task.due && task.due < _TODAY;
+
   return (
-    React.createElement(SwipeableRow, { onEdit: onEdit, onDelete: () => del(task.id),}
-      , React.createElement('div', { className: "task-row", style: { display: "flex", alignItems: "center", gap: 10, padding: "10px 6px", borderBottom: `1px solid ${COLORS.border}`, borderRadius: 6 },}
-        , React.createElement('input', { type: "checkbox", checked: task.done, onChange: () => toggle(task.id), style: { width: 17, height: 17, cursor: "pointer", accentColor: COLORS.primary }, onClick: e => e.stopPropagation(),} )
-        , React.createElement('span', { style: { fontSize: 18 },}, categoryIcons[task.category] || "📌")
-        , React.createElement('div', { style: { flex: 1 },}
-          , React.createElement('div', { style: { fontSize: 14, fontWeight: 500, textDecoration: task.done ? "line-through" : "none", color: task.done ? COLORS.muted : COLORS.text },}, task.title)
-          , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted },}, "Due " , task.due, " · "  , React.createElement('span', { className: "pill", style: { background: COLORS.soft },}, task.category))
+    React.createElement('div', { style:{ borderRadius:12, marginBottom:6, overflow:'hidden', border:`1px solid ${isOverdue ? '#FECACA' : COLORS.border}`, background:'#fff' } }
+      , React.createElement('div', { className:'row-clickable', onClick:()=>setExpanded(v=>!v),
+          style:{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background: expanded ? '#F8F7FF' : task.done ? '#F8FAFC' : '#fff' } }
+        , React.createElement('input', { type:'checkbox', checked:task.done, onChange:()=>toggle(task.id),
+            onClick:e=>e.stopPropagation(),
+            style:{ width:18, height:18, cursor:'pointer', accentColor:COLORS.primary, flexShrink:0 } })
+        , React.createElement('div', { style:{ width:36, height:36, borderRadius:9, background: task.done ? '#F1F5F9' : COLORS.soft, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 } }
+          , categoryIcons[task.category] || '📌'
         )
-        , member && React.createElement('div', { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 1 },}
-          , React.createElement('span', { style: { fontSize: 16 },}, member.photo ? React.createElement('img', { src: member.photo, alt: "", style: { width: 20, height: 20, borderRadius: "50%", objectFit: "cover" },} ) : member.emoji)
-          , React.createElement('span', { style: { fontSize: 10, color: COLORS.muted },}, member.name)
+        , React.createElement('div', { style:{ flex:1, minWidth:0 } }
+          , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color: task.done ? COLORS.muted : COLORS.text, textDecoration: task.done ? 'line-through' : 'none', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, task.title)
+          , React.createElement('div', { style:{ fontSize:12, color: isOverdue ? COLORS.danger : COLORS.muted, marginTop:2 } }
+            , isOverdue ? '⚠️ Overdue · ' : 'Due · ', task.due
+          )
+        )
+        , member && React.createElement('div', { style:{ display:'flex', flexDirection:'column', alignItems:'center', gap:1, flexShrink:0 } }
+          , React.createElement('span', { style:{ fontSize:18 } }, member.photo ? React.createElement('img', { src:member.photo, alt:'', style:{ width:22, height:22, borderRadius:'50%', objectFit:'cover' } }) : member.emoji)
+          , React.createElement('span', { style:{ fontSize:10, color:COLORS.muted } }, member.name)
+        )
+        , React.createElement('span', { style:{ fontSize:12, color:COLORS.muted, flexShrink:0 } }, expanded ? '▲' : '▼')
+      )
+      , expanded && React.createElement('div', { className:'expand-panel', style:{ padding:'12px 14px', background:'#F8F7FF', borderTop:`1px solid ${COLORS.border}` } }
+        , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Due Date')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color: isOverdue ? COLORS.danger : COLORS.text, marginTop:2 } }, task.due || '—')
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, task.category)
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Assigned To')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, member ? `${member.emoji} ${member.name}` : '—')
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Status')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color: task.done ? COLORS.success : isOverdue ? COLORS.danger : COLORS.primary, marginTop:2 } }, task.done ? '✅ Done' : isOverdue ? '⚠️ Overdue' : '🕐 Pending')
+          )
+        )
+        , React.createElement('div', { style:{ display:'flex', gap:8 } }
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); toggle(task.id); }, style:{ flex:1, padding:'8px 0', background: task.done ? '#F1F5F9' : COLORS.success, color: task.done ? COLORS.muted : '#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }
+            , task.done ? '↩ Mark Pending' : '✓ Mark Done'
+          )
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); onEdit(); }, style:{ flex:1, padding:'8px 0', background:COLORS.primary, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '✏️ Edit')
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); del(task.id); }, style:{ padding:'8px 12px', background:COLORS.danger, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '🗑️')
         )
       )
     )
@@ -18055,20 +18120,50 @@ function FullTaskRow({ task, data, toggle, del, onEdit }) {
 }
 
 function EventRow({ ev, data, onEdit, onDelete }) {
-  const memberEmojis = ev.members.map(id => _optionalChain([data, 'access', _6 => _6.members, 'access', _7 => _7.find, 'call', _8 => _8(m => m.id === id), 'optionalAccess', _9 => _9.emoji]) || "👤").join("");
+  const [expanded, setExpanded] = useState(false);
+  const members = ev.members.map(id => data.members.find(m => m.id === id)).filter(Boolean);
+  const isPast = ev.date < _TODAY;
+
   const inner = (
-    React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${COLORS.border}` },}
-      , React.createElement('div', { style: { width: 10, height: 10, borderRadius: "50%", background: ev.color, flexShrink: 0 },} )
-      , React.createElement('div', { style: { flex: 1 },}
-        , React.createElement('div', { style: { fontSize: 14, fontWeight: 600 },}, ev.title)
-        , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted },}, ev.date, " · "  , ev.time)
+    React.createElement('div', { style:{ borderRadius:12, marginBottom:6, overflow:'hidden', border:`1px solid ${COLORS.border}`, background:'#fff' } }
+      , React.createElement('div', { className:'row-clickable', onClick:()=>setExpanded(v=>!v),
+          style:{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background: expanded ? '#F8F7FF' : '#fff' } }
+        , React.createElement('div', { style:{ width:40, height:40, borderRadius:10, background: ev.color + '22', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:`2px solid ${ev.color}` } }
+          , React.createElement('div', { style:{ width:12, height:12, borderRadius:'50%', background:ev.color } })
+        )
+        , React.createElement('div', { style:{ flex:1, minWidth:0 } }
+          , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color: isPast ? COLORS.muted : COLORS.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, ev.title)
+          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, ev.date, ev.time ? ` · ${ev.time}` : '')
+        )
+        , React.createElement('div', { style:{ display:'flex', gap:-4, flexShrink:0 } }
+          , members.slice(0,3).map(m => React.createElement('span', { key:m.id, style:{ fontSize:16 } }, m.emoji))
+        )
+        , React.createElement('span', { style:{ fontSize:12, color:COLORS.muted, marginLeft:4, flexShrink:0 } }, expanded ? '▲' : '▼')
       )
-      , React.createElement('div', { style: { fontSize: 16 },}, memberEmojis)
+      , expanded && React.createElement('div', { className:'expand-panel', style:{ padding:'12px 14px', background:'#F8F7FF', borderTop:`1px solid ${COLORS.border}` } }
+        , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, ev.date)
+          )
+          , React.createElement('div', null
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, ev.time || '—')
+          )
+          , React.createElement('div', { style:{ gridColumn:'1/-1' } }
+            , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Attendees')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }
+              , members.map(m => `${m.emoji} ${m.name}`).join(' · ') || '—'
+            )
+          )
+        )
+        , onEdit && onDelete && React.createElement('div', { style:{ display:'flex', gap:8 } }
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); onEdit(); }, style:{ flex:1, padding:'8px 0', background:COLORS.primary, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '✏️ Edit')
+          , React.createElement('button', { onClick:(e)=>{ e.stopPropagation(); onDelete(); }, style:{ flex:1, padding:'8px 0', background:COLORS.danger, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, '🗑️ Delete')
+        )
+      )
     )
   );
-  if (onEdit && onDelete) {
-    return React.createElement(SwipeableRow, { onEdit: onEdit, onDelete: onDelete,}, inner);
-  }
   return inner;
 }
 
@@ -18094,11 +18189,11 @@ function Calendar({ data, setData, setModal }) {
 
   return (
     React.createElement('div', { style: { display: "flex", flexDirection: "column", gap: 16 },}
-      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-        , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },}
-          , React.createElement('button', { className: "btn-soft", onClick: () => setMonth(m => { const d = new Date(m.year, m.month - 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }), style: { padding: "5px 12px" },}, "◀")
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 18, fontWeight: 700 },}, monthName)
-          , React.createElement('button', { className: "btn-soft", onClick: () => setMonth(m => { const d = new Date(m.year, m.month + 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }), style: { padding: "5px 12px" },}, "▶")
+      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+        , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },}
+          , React.createElement('button', { className: "btn-soft", onClick: () => setMonth(m => { const d = new Date(m.year, m.month - 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }), style: { padding: "6px 14px", fontSize: 15 },}, "◀")
+          , React.createElement('div', { style: { fontSize: 16, fontWeight: 700, color: COLORS.text },}, monthName)
+          , React.createElement('button', { className: "btn-soft", onClick: () => setMonth(m => { const d = new Date(m.year, m.month + 1, 1); return { year: d.getFullYear(), month: d.getMonth() }; }), style: { padding: "6px 14px", fontSize: 15 },}, "▶")
         )
         , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center" },}
           , ["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
@@ -18109,7 +18204,7 @@ function Calendar({ data, setData, setModal }) {
             const evs = ds ? data.events.filter(e => e.date === ds) : [];
             const isToday = ds === _TODAY;
             return (
-              React.createElement('div', { key: i, style: { minHeight: 44, padding: "4px 2px", borderRadius: 8, background: isToday ? COLORS.primary : "transparent", border: isToday ? "none" : "1px solid transparent" },}
+              React.createElement('div', { key: i, style: { minHeight: 44, padding: "4px 2px", borderRadius: 10, background: isToday ? "linear-gradient(135deg,#4F46E5,#7C3AED)" : "transparent" },}
                 , d && React.createElement(React.Fragment, null
                   , React.createElement('div', { style: { fontSize: 13, fontWeight: isToday ? 700 : 400, color: isToday ? "#fff" : COLORS.text },}, d)
                   , React.createElement('div', { style: { display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center", marginTop: 2 },}
@@ -18128,9 +18223,8 @@ function Calendar({ data, setData, setModal }) {
         , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-event"),}, "+ Add Event"  )
       )
 
-      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 4 },}, "All Events" )
-        , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 12 },}, "← Swipe left to edit or delete"      )
+      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 12, color: COLORS.text },}, "All Events" )
         , data.events.length === 0 && React.createElement(Empty, { text: "No events yet"  ,} )
         , [...data.events].sort((a, b) => b.date.localeCompare(a.date)).map(ev => (
           React.createElement(EventRow, { key: ev.id, ev: ev, data: data,
@@ -18150,14 +18244,13 @@ function Calendar({ data, setData, setModal }) {
   );
 }
 
-// ── TASKS ─────────────────────────────────────────────────────────────
 function Tasks({ data, setData, setModal }) {
   const [editingTask, setEditingTask] = useState(null);
-  const toggleTask = (id) => setData(d => ({ ...d, tasks: d.tasks.map(t => t.id === id ? { ...t, done: !t.done } : t) }));
-  const deleteTask = (id) => setData(d => ({ ...d, tasks: d.tasks.filter(t => t.id !== id) }));
+  const toggleTask = (id) => setData(d => ({ ...d, tasks: d.tasks.map(t => t.id === id ? { ...t, done: !t.done } : t) }), 'tasks');
+  const deleteTask = (id) => setData(d => ({ ...d, tasks: d.tasks.filter(t => t.id !== id) }), 'tasks');
 
-  const pending = data.tasks.filter(t => !t.done);
-  const done = data.tasks.filter(t => t.done);
+  const pending = [...data.tasks].filter(t => !t.done).sort((a,b) => b.due.localeCompare(a.due));
+  const done = [...data.tasks].filter(t => t.done).sort((a,b) => b.due.localeCompare(a.due));
 
   return (
     React.createElement('div', { style: { display: "flex", flexDirection: "column", gap: 16 },}
@@ -18165,16 +18258,15 @@ function Tasks({ data, setData, setModal }) {
         , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-task"),}, "+ Add Task"  )
       )
 
-      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 4 },}, "Pending (" , pending.length, ")")
-        , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 10 },}, "← Swipe left to edit or delete"      )
+      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 12, color: COLORS.text },}, "Pending (" , pending.length, ")")
         , pending.length === 0 && React.createElement(Empty, { text: "All done! 🎉"  ,} )
         , pending.map(task => React.createElement(FullTaskRow, { key: task.id, task: task, data: data, toggle: toggleTask, del: deleteTask, onEdit: () => setEditingTask(task),} ))
       )
 
       , done.length > 0 && (
-        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: 0.7 },}
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 12 },}, "Completed (" , done.length, ")")
+        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)", opacity: 0.75 },}
+          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 12, color: COLORS.text },}, "Completed (" , done.length, ")")
           , done.map(task => React.createElement(FullTaskRow, { key: task.id, task: task, data: data, toggle: toggleTask, del: deleteTask, onEdit: () => setEditingTask(task),} ))
         )
       )
@@ -18182,7 +18274,7 @@ function Tasks({ data, setData, setModal }) {
       , editingTask && (
         React.createElement(EditTaskModal, { task: editingTask, data: data,
           close: () => setEditingTask(null),
-          save: (updated) => { setData(d => ({ ...d, tasks: d.tasks.map(t => t.id === updated.id ? updated : t) })); setEditingTask(null); },}
+          save: (updated) => { setData(d => ({ ...d, tasks: d.tasks.map(t => t.id === updated.id ? updated : t) }), 'tasks'); setEditingTask(null); },}
         )
       )
     )
@@ -18229,40 +18321,34 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
         , React.createElement('button', { onClick: nextMonth, className: "btn-soft", style: { padding: "5px 14px", fontSize: 16, opacity: isCurrentMonth ? 0.3 : 1, cursor: isCurrentMonth ? "default" : "pointer" },}, "▶")
       )
 
-      , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },}
-        , React.createElement('div', { onClick: () => setFilterCard(f => f === "pot" ? null : "pot"), className: "card", style: { background: filterCard === "pot" ? "#EFF7E8" : "#fff", borderRadius: 14, padding: "18px 10px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center", cursor: "pointer", border: filterCard === "pot" ? `2px solid ${COLORS.primary}` : "2px solid transparent" },}
-          , React.createElement('div', { style: { fontSize: 22 },}, "🫙")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.success, marginTop: 4 },}, "£", monthIncome.toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Family Pot" )
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.primary, background: COLORS.soft, borderRadius: 4, padding: "1px 5px" },}, shortMonth)
-          )
+      , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 },}
+        , React.createElement('div', { onClick: () => setFilterCard(f => f === "pot" ? null : "pot"), className: "card", style: { background: filterCard === "pot" ? "#EEF2FF" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "pot" ? "0 4px 20px rgba(79,70,229,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "pot" ? `2px solid ${COLORS.primary}` : "2px solid transparent", transition: "all 0.2s" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🫙")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.success },}, "£", monthIncome.toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Family Pot")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.primary, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
-        , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF0F0" : "#fff", borderRadius: 14, padding: "18px 10px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent" },}
-          , React.createElement('div', { style: { fontSize: 22 },}, "💷")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.danger, marginTop: 4 },}, "£", monthExpenses.toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Expenses")
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.danger, background: "#FEF0F0", borderRadius: 4, padding: "1px 5px" },}, shortMonth)
-          )
+        , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF2F2" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "expenses" ? "0 4px 20px rgba(239,68,68,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent", transition: "all 0.2s" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "💸")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.danger },}, "£", monthExpenses.toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Expenses")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.danger, background: "#FEF2F2", borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
-        , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: "18px 10px 14px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" },}
-          , React.createElement('div', { style: { fontSize: 22 },}, "🏦")
-          , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: allTimeBalance >= 0 ? COLORS.primary : COLORS.danger, marginTop: 4 },}, "£", Math.abs(allTimeBalance).toLocaleString())
-          , React.createElement('div', { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 },}
-            , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted },}, "Balance")
-            , React.createElement('span', { style: { fontSize: 10, fontWeight: 600, color: COLORS.muted, background: COLORS.soft, borderRadius: 4, padding: "1px 5px" },}, "overall")
-          )
+        , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center" },}
+          , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🏦")
+          , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: allTimeBalance >= 0 ? COLORS.success : COLORS.danger },}, allTimeBalance >= 0 ? "+" : "-", "£", Math.abs(allTimeBalance).toLocaleString())
+          , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Balance")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "all time")
         )
       )
 
       /* Filtered transaction table */
       , filterCard && (
-        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 15, fontWeight: 700, marginBottom: 10 },}
-            , filterCard === "pot" ? "🫙 Family Pot" : "£ Expenses", " — "  , shortMonth
+        React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+          , React.createElement('div', { style: { fontSize: 15, fontWeight: 700, marginBottom: 12, color: COLORS.text },}
+            , filterCard === "pot" ? "🫙 Family Pot" : "💸 Expenses", " — ", shortMonth
           )
-          , filteredTx.length === 0 && React.createElement(Empty, { text: "No transactions this month"   ,} )
+          , filteredTx.length === 0 && React.createElement(Empty, { text: "No transactions this month",} )
           , [...filteredTx].sort((a, b) => b.date.localeCompare(a.date)).map(tx => (
             React.createElement(TxRow, { key: tx.id, tx: tx, data: data,} )
           ))
@@ -18277,38 +18363,37 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
         const pct = Math.min((monthSpent / MONTHLY_BUDGET) * 100, 100);
         const over = monthSpent > MONTHLY_BUDGET;
         return (
-          React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-            , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },}
-              , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700 },}, "📊 Monthly Budget"  )
-              , React.createElement('div', { style: { fontSize: 13, color: COLORS.muted },}, "Budget: £" , MONTHLY_BUDGET.toLocaleString())
+          React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+            , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },}
+              , React.createElement('div', { style: { fontSize: 15, fontWeight: 700, color: COLORS.text },}, "📊 Monthly Budget")
+              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, background: COLORS.soft, borderRadius: 8, padding: "3px 10px", fontWeight: 600 },}, "Budget: £", MONTHLY_BUDGET.toLocaleString())
             )
-            , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 },}
-              , React.createElement('div', { style: { fontSize: 13, color: COLORS.muted },}, "Spent: " , React.createElement('strong', { style: { color: COLORS.text },}, "£", monthSpent.toFixed(0)))
-              , React.createElement('div', { style: { fontSize: 22, fontWeight: 700, color: over ? COLORS.danger : COLORS.success },}
+            , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 },}
+              , React.createElement('div', { style: { fontSize: 13, color: COLORS.muted },}, "Spent: ", React.createElement('strong', { style: { color: COLORS.text, fontWeight: 700 },}, "£", monthSpent.toFixed(0)))
+              , React.createElement('div', { style: { fontSize: 24, fontWeight: 800, color: over ? COLORS.danger : COLORS.success },}
                 , over ? "-" : "+", "£", Math.abs(remaining).toFixed(0)
               )
             )
             , React.createElement('div', { className: "progress-bar",}
-              , React.createElement('div', { className: "progress-fill", style: { width: `${pct}%`, background: over ? COLORS.danger : pct > 80 ? COLORS.accent : COLORS.success },} )
+              , React.createElement('div', { className: "progress-fill", style: { width: `${pct}%`, background: over ? COLORS.danger : pct > 80 ? COLORS.accent : "linear-gradient(90deg, #4F46E5, #10B981)" },} )
             )
-            , React.createElement('div', { style: { fontSize: 12, color: over ? COLORS.danger : COLORS.muted, marginTop: 6, textAlign: "right" },}
-              , over ? `£${Math.abs(remaining).toFixed(0)} over budget` : `£${remaining.toFixed(0)} left this month`
+            , React.createElement('div', { style: { fontSize: 12, color: over ? COLORS.danger : COLORS.muted, marginTop: 8, textAlign: "right", fontWeight: 600 },}
+              , over ? `£${Math.abs(remaining).toFixed(0)} over budget 🔴` : `£${remaining.toFixed(0)} remaining this month`
             )
           )
         );
       })()
 
       /* Transactions */
-      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-        , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },}
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700 },}, "All Transactions" )
-          , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-transaction"), style: { padding: "5px 12px", fontSize: 12 },}, "+ Add" )
+      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+        , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },}
+          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, color: COLORS.text },}, "All Transactions" )
+          , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-transaction"), style: { padding: "5px 14px", fontSize: 12 },}, "+ Add" )
         )
-        , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 10 },}, "← Swipe left to edit or delete"      )
         , [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).map(tx => (
           React.createElement(TxRow, { key: tx.id, tx: tx, data: data,
             onEdit: () => setEditingTx(tx),
-            onDelete: () => setData(d => ({ ...d, transactions: d.transactions.filter(t => t.id !== tx.id) })),}
+            onDelete: () => setData(d => ({ ...d, transactions: d.transactions.filter(t => t.id !== tx.id) }), 'transactions'),}
           )
         ))
       )
@@ -18341,7 +18426,7 @@ function Family({ data, setData, setModal }) {
         , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-member"),}, "+ Add Member"  )
       )
       , data.members.map(m => (
-        React.createElement('div', { key: m.id, className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
+        React.createElement('div', { key: m.id, className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
           , React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 },}
             , React.createElement('div', { style: { width: 50, height: 50, borderRadius: "50%", background: m.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0, overflow: "hidden" },}
               , m.photo ? React.createElement('img', { src: m.photo, alt: m.name, style: { width: "100%", height: "100%", objectFit: "cover" },} ) : m.emoji
@@ -18356,15 +18441,15 @@ function Family({ data, setData, setModal }) {
             )
           )
           , React.createElement('div', { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },}
-            , React.createElement('div', { style: { background: COLORS.soft, borderRadius: 10, padding: "10px 14px" },}
-              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted },}, "Tasks")
-              , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.primary },}, tasksByMember(m.id).length)
-              , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted },}, tasksByMember(m.id).filter(t => t.done).length, " done" )
+            , React.createElement('div', { style: { background: COLORS.soft, borderRadius: 12, padding: "12px 14px" },}
+              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, fontWeight: 600 },}, "Tasks")
+              , React.createElement('div', { style: { fontSize: 22, fontWeight: 800, color: COLORS.primary },}, tasksByMember(m.id).length)
+              , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 1 },}, tasksByMember(m.id).filter(t => t.done).length, " done")
             )
-            , React.createElement('div', { style: { background: COLORS.soft, borderRadius: 10, padding: "10px 14px" },}
-              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted },}, "Spending")
-              , React.createElement('div', { style: { fontSize: 20, fontWeight: 700, color: COLORS.danger },}, "£", spendByMember(m.id).toFixed(0))
-              , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted },}, "this period" )
+            , React.createElement('div', { style: { background: "#FEF2F2", borderRadius: 12, padding: "12px 14px" },}
+              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, fontWeight: 600 },}, "Spending")
+              , React.createElement('div', { style: { fontSize: 22, fontWeight: 800, color: COLORS.danger },}, "£", spendByMember(m.id).toFixed(0))
+              , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 1 },}, "this period")
             )
           )
         )
@@ -18452,7 +18537,7 @@ function Notes({ data, setData }) {
       , data.notes.length === 0 && React.createElement(Empty, { text: "No notes yet — tap + New Note to start"         ,} )
 
       , data.notes.map(note => (
-        React.createElement('div', { key: note.id, className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
+        React.createElement('div', { key: note.id, className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)", borderLeft: `4px solid ${COLORS.primary}` },}
           , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },}
             , React.createElement('div', { style: { flex: 1 },}
               , note.title && React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 6 },}, note.title)
@@ -18589,9 +18674,9 @@ function ChildRoutines({ data, setData }) {
   return (
     React.createElement('div', { style: { display: "flex", flexDirection: "column", gap: 16 },}
       /* Header */
-      , React.createElement('div', { style: { background: COLORS.primary, borderRadius: 14, padding: "16px 18px", color: "#fff" },}
-        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 20, fontWeight: 700 },}, "🧒 Child Routines"  )
-        , React.createElement('div', { style: { fontSize: 13, opacity: 0.75, marginTop: 3 },}, "Track daily, weekly & monthly habits"     )
+      , React.createElement('div', { style: { background: "linear-gradient(135deg, #4F46E5, #7C3AED)", borderRadius: 16, padding: "18px 20px", color: "#fff", boxShadow: "0 4px 20px rgba(79,70,229,0.25)" },}
+        , React.createElement('div', { style: { fontSize: 20, fontWeight: 800 },}, "🧒 Child Routines")
+        , React.createElement('div', { style: { fontSize: 13, opacity: 0.8, marginTop: 3 },}, "Track daily, weekly & monthly habits")
       )
 
       , React.createElement('div', { style: { display: "flex", justifyContent: "flex-end" },}
@@ -18609,7 +18694,7 @@ function ChildRoutines({ data, setData }) {
         const isOpen = expanded === r.id;
 
         return (
-          React.createElement('div', { key: r.id, className: "card", style: { background: "#fff", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden" },}
+          React.createElement('div', { key: r.id, className: "card", style: { background: "#fff", borderRadius: 16, boxShadow: "0 4px 20px rgba(79,70,229,0.08)", overflow: "hidden", border: isOverdue ? `1.5px solid ${COLORS.danger}` : `1.5px solid ${COLORS.border}` },}
             /* Routine header */
             , React.createElement('div', { style: { padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 },
               onClick: () => setExpanded(isOpen ? null : r.id),}
