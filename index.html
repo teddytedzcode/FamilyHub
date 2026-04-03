@@ -17253,24 +17253,23 @@ exports.version = "19.2.4";
 
     async function dbSave(table, items) {
       if (!ONLINE_MODE()) return;
-      // Upsert all items as {id, data} rows
       const rows = Array.isArray(items)
-        ? items.map(item => ({ id: item.id, data: item }))
-        : [{ id: items.key || 'state', data: items }];
+        ? items.map(item => ({ id: String(item.id), data: item }))
+        : [{ id: String(items.key || 'state'), data: items }];
       const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
-      if (error) console.error('Save error', table, error);
+      if (error) console.error('Save error', table, JSON.stringify(error));
     }
 
     async function dbDelete(table, id) {
       if (!ONLINE_MODE()) return;
-      const { error } = await supabase.from(table).delete().eq('id', id);
-      if (error) console.error('Delete error', table, error);
+      const { error } = await supabase.from(table).delete().eq('id', String(id));
+      if (error) console.error('Delete error', table, JSON.stringify(error));
     }
 
     async function dbSaveAppState(key, value) {
       if (!ONLINE_MODE()) return;
       const { error } = await supabase.from('app_state').upsert({ key: key, value: value }, { onConflict: 'key' });
-      if (error) console.error('AppState error', error);
+      if (error) console.error('AppState error', JSON.stringify(error));
     }
 
     async function dbLoadAppState(key) {
@@ -17279,7 +17278,62 @@ exports.version = "19.2.4";
       return data.value;
     }
 
-    // ── INITIAL FALLBACK DATA ────────────────────────────────────────
+    // ── PUSH NOTIFICATIONS ───────────────────────────────────────────
+    const VAPID_PUBLIC_KEY = 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY';
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+    }
+
+    async function registerPush() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (VAPID_PUBLIC_KEY === 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY') return;
+      try {
+        const reg = await navigator.serviceWorker.register('/service-worker.js');
+        await navigator.serviceWorker.ready;
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        const existing = await reg.pushManager.getSubscription();
+        const sub = existing || await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        const subData = JSON.parse(JSON.stringify(sub));
+        if (ONLINE_MODE()) {
+          await supabase.from('push_subscriptions').upsert(
+            { id: subData.endpoint, data: subData },
+            { onConflict: 'id' }
+          );
+        }
+        console.log('[TFH] Push subscription registered');
+      } catch(e) {
+        console.warn('[TFH] Push registration failed:', e);
+      }
+    }
+
+    async function sendPushNotification(title, body) {
+      if (!ONLINE_MODE()) return;
+      if (VAPID_PUBLIC_KEY === 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY') return;
+      try {
+        await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body }),
+        });
+      } catch(e) {
+        console.warn('[TFH] Push send failed:', e);
+      }
+    }
+
+    const PUSH_LABELS = {
+      members: 'Family', tasks: 'Tasks', events: 'Calendar',
+      transactions: 'Finance', recurring: 'Recurring', notes: 'Notes', routines: 'Routines',
+    };
+
+
     const initialState = {
       members: [
         { id: 1, name: "Mom", color: "#E8A020", emoji: "👩" },
@@ -17303,7 +17357,6 @@ exports.version = "19.2.4";
         { id: 4, desc: "Takeaway", amount: -32, category: "dining", date: "2026-03-20", member: 1 },
       ],
       recurring: [
-        { id: 1, desc: "Mortgage", amount: 1300, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "🏠" },
         { id: 2, desc: "Broadband & SIM", amount: 65, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "📶" },
         { id: 3, desc: "Streaming", amount: 10, category: "entertainment", dayOfMonth: 1, member: 1, active: true, icon: "📺" },
         { id: 4, desc: "Electricity & Gas", amount: 100, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "⚡" },
@@ -17577,6 +17630,7 @@ function FamilyApp() {
           }
         }
         load();
+        registerPush();
       }, []);
 
       // ── REAL-TIME SUBSCRIPTIONS ──────────────────────────────────
@@ -17644,12 +17698,25 @@ function FamilyApp() {
               dbSaveAppState('recurringApplied', next.recurringApplied);
             } else {
               syncToDb(table, next[table], deletedId);
+              const label = PUSH_LABELS[table] || table;
+              if (deletedId) {
+                sendPushNotification('🗑️ ' + label + ' Updated', 'An item was deleted from ' + label);
+              } else {
+                const prevLen = (prev[table] || []).length;
+                const nextLen = (next[table] || []).length;
+                if (nextLen > prevLen) {
+                  sendPushNotification('✨ New in ' + label, 'A new item was added to ' + label);
+                } else {
+                  sendPushNotification('✏️ ' + label + ' Updated', 'An item was edited in ' + label);
+                }
+              }
             }
           } else {
-            // Sync everything that changed
             ['members','tasks','events','transactions','recurring','notes','routines'].forEach(t => {
               if (JSON.stringify(prev[t]) !== JSON.stringify(next[t])) {
                 syncToDb(t, next[t]);
+                const label = PUSH_LABELS[t] || t;
+                sendPushNotification('🔄 ' + label + ' Updated', 'Changes were made in ' + label);
               }
             });
             if (JSON.stringify(prev.recurringApplied) !== JSON.stringify(next.recurringApplied)) {
@@ -17670,19 +17737,30 @@ function FamilyApp() {
         const applied = new Set(data.recurringApplied || []);
         if (applied.has(currentYM)) return;
         const activeRecurring = data.recurring.filter(r => r.active);
+        if (activeRecurring.length === 0) return;
+        // Avoid duplicates — check if recurring transactions for this month already exist
+        const alreadyAdded = data.transactions.some(t =>
+          t.recurring && t.date && t.date.startsWith(currentYM)
+        );
+        if (alreadyAdded) {
+          // Mark as applied even if transactions exist (catches recovery case)
+          setDataAndSync(d => ({
+            ...d,
+            recurringApplied: [...(d.recurringApplied||[]), currentYM],
+          }), 'recurringApplied');
+          return;
+        }
         const newTransactions = activeRecurring.map(r => ({
-          id: Date.now() + r.id + Math.random(),
+          id: `rec-${currentYM}-${String(r.id)}`,
           desc: r.desc, amount: -Math.abs(r.amount), category: r.category,
           date: `${ukYear}-${String(ukMonth+1).padStart(2,"0")}-${String(r.dayOfMonth).padStart(2,"0")}`,
           member: r.member, recurring: true,
         }));
-        if (newTransactions.length > 0) {
-          setDataAndSync(d => ({
-            ...d,
-            transactions: [...d.transactions, ...newTransactions],
-            recurringApplied: [...(d.recurringApplied||[]), currentYM],
-          }));
-        }
+        setDataAndSync(d => ({
+          ...d,
+          transactions: [...d.transactions, ...newTransactions],
+          recurringApplied: [...(d.recurringApplied||[]), currentYM],
+        }));
       }, [!!data]);
 
       // ── LOADING SCREEN ───────────────────────────────────────────
@@ -17836,19 +17914,19 @@ function Dashboard({ data, upcomingEvents, pendingTasks, totalIncome, totalExpen
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🫙")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.success },}, "£", monthIncome.toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Family Pot")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.primary, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
         , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF2F2" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "expenses" ? "0 4px 20px rgba(239,68,68,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent", transition: "all 0.2s" },}
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "💸")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.danger },}, "£", monthExpenses.toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Expenses")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.danger, background: "#FEF2F2", borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
         , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center" },}
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🏦")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: allTimeBalance >= 0 ? COLORS.success : COLORS.danger },}, allTimeBalance >= 0 ? "+" : "-", "£", Math.abs(allTimeBalance).toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Balance")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "all time")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "overall")
         )
       )
 
@@ -18288,6 +18366,11 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
   const [viewMonth, setViewMonth] = useState(TODAY.getMonth());
   const [filterCard, setFilterCard] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
+  const [monthlyBudget, setMonthlyBudget] = useState(() => {
+    try { return Number(localStorage.getItem('tfh_budget') || '2000'); } catch(e) { return 2000; }
+  });
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState('');
 
   const viewYM = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`;
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleString("default", { month: "long", year: "numeric" });
@@ -18326,19 +18409,19 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🫙")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.success },}, "£", monthIncome.toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Family Pot")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.primary, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
         , React.createElement('div', { onClick: () => setFilterCard(f => f === "expenses" ? null : "expenses"), className: "card", style: { background: filterCard === "expenses" ? "#FEF2F2" : "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: filterCard === "expenses" ? "0 4px 20px rgba(239,68,68,0.18)" : "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center", cursor: "pointer", border: filterCard === "expenses" ? `2px solid ${COLORS.danger}` : "2px solid transparent", transition: "all 0.2s" },}
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "💸")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: COLORS.danger },}, "£", monthExpenses.toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Expenses")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.danger, background: "#FEF2F2", borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, shortMonth)
         )
         , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: "16px 10px 14px", boxShadow: "0 2px 10px rgba(79,70,229,0.07)", textAlign: "center" },}
           , React.createElement('div', { style: { fontSize: 26, marginBottom: 4 },}, "🏦")
           , React.createElement('div', { style: { fontSize: 18, fontWeight: 800, color: allTimeBalance >= 0 ? COLORS.success : COLORS.danger },}, allTimeBalance >= 0 ? "+" : "-", "£", Math.abs(allTimeBalance).toLocaleString())
           , React.createElement('div', { style: { fontSize: 11, color: COLORS.muted, marginTop: 3, fontWeight: 600 },}, "Balance")
-          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "all time")
+          , React.createElement('div', { style: { fontSize: 10, fontWeight: 700, color: COLORS.muted, background: COLORS.soft, borderRadius: 6, padding: "2px 6px", display: "inline-block", marginTop: 4 },}, "overall")
         )
       )
 
@@ -18357,16 +18440,43 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
 
       /* Budget tracker */
       , (() => {
-        const MONTHLY_BUDGET = 2000;
         const monthSpent = Math.abs(data.transactions.filter(t => t.amount < 0 && t.date.startsWith(viewYM)).reduce((s, t) => s + t.amount, 0));
-        const remaining = MONTHLY_BUDGET - monthSpent;
-        const pct = Math.min((monthSpent / MONTHLY_BUDGET) * 100, 100);
-        const over = monthSpent > MONTHLY_BUDGET;
+        const remaining = monthlyBudget - monthSpent;
+        const pct = Math.min((monthSpent / monthlyBudget) * 100, 100);
+        const over = monthSpent > monthlyBudget;
         return (
           React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
             , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },}
               , React.createElement('div', { style: { fontSize: 15, fontWeight: 700, color: COLORS.text },}, "📊 Monthly Budget")
-              , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, background: COLORS.soft, borderRadius: 8, padding: "3px 10px", fontWeight: 600 },}, "Budget: £", MONTHLY_BUDGET.toLocaleString())
+              , React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 6 },}
+                , editingBudget
+                  ? React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 6 },}
+                      , React.createElement('span', { style: { fontSize: 13, color: COLORS.muted, fontWeight: 600 },}, "£")
+                      , React.createElement('input', { type: "number", value: budgetInput, autoFocus: true,
+                          onChange: e => setBudgetInput(e.target.value),
+                          onKeyDown: e => {
+                            if (e.key === 'Enter') {
+                              const v = Number(budgetInput);
+                              if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} }
+                              setEditingBudget(false);
+                            }
+                            if (e.key === 'Escape') setEditingBudget(false);
+                          },
+                          style: { width: 90, padding: "4px 8px", fontSize: 14, fontWeight: 700, border: `1.5px solid ${COLORS.primary}`, borderRadius: 8, outline: "none", textAlign: "right" },})
+                      , React.createElement('button', { onClick: () => {
+                          const v = Number(budgetInput);
+                          if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} }
+                          setEditingBudget(false);
+                        }, style: { background: COLORS.primary, color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },}, "Save")
+                      , React.createElement('button', { onClick: () => setEditingBudget(false), style: { background: COLORS.soft, color: COLORS.muted, border: "none", borderRadius: 8, padding: "4px 8px", fontSize: 12, cursor: "pointer" },}, "✕")
+                    )
+                  : React.createElement('div', { style: { display: "flex", alignItems: "center", gap: 6 },}
+                      , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, background: COLORS.soft, borderRadius: 8, padding: "3px 10px", fontWeight: 600 },}, "Budget: £", monthlyBudget.toLocaleString())
+                      , React.createElement('button', { onClick: () => { setBudgetInput(String(monthlyBudget)); setEditingBudget(true); },
+                          title: "Edit budget",
+                          style: { background: "none", border: "none", fontSize: 14, cursor: "pointer", color: COLORS.muted, padding: "2px 4px", borderRadius: 6, lineHeight: 1 },}, "✏️")
+                    )
+              )
             )
             , React.createElement('div', { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 },}
               , React.createElement('div', { style: { fontSize: 13, color: COLORS.muted },}, "Spent: ", React.createElement('strong', { style: { color: COLORS.text, fontWeight: 700 },}, "£", monthSpent.toFixed(0)))
@@ -18510,7 +18620,7 @@ function Notes({ data, setData }) {
     if (!form.title.trim() && !form.body.trim()) return;
     const now = new Date().toISOString();
     if (isNew) {
-      setData(d => ({ ...d, notes: [{ id: Date.now(), title: form.title, body: form.body, createdAt: now, editedAt: null }, ...d.notes] }));
+      setData(d => ({ ...d, notes: [{ id: String(Date.now()), title: form.title, body: form.body, createdAt: now, editedAt: null }, ...d.notes] }));
     } else {
       setData(d => ({ ...d, notes: d.notes.map(n => n.id === editingNote.id ? { ...n, title: form.title, body: form.body, editedAt: now } : n) }));
     }
@@ -18622,7 +18732,7 @@ function ChildRoutines({ data, setData }) {
   const saveRoutine = () => {
     if (!editing.title.trim()) return;
     if (isNew) {
-      setData(d => ({ ...d, routines: [...(d.routines || []), { ...editing, id: Date.now(), lastDone: today }] }));
+      setData(d => ({ ...d, routines: [...(d.routines || []), { ...editing, id: String(Date.now()), lastDone: today }] }));
     } else {
       setData(d => ({ ...d, routines: d.routines.map(r => r.id === editing.id ? editing : r) }));
     }
@@ -18666,7 +18776,7 @@ function ChildRoutines({ data, setData }) {
   };
 
   const addObjective = () => {
-    setEditing(e => ({ ...e, objectives: [...e.objectives, { id: Date.now(), text: "", done: false }] }));
+    setEditing(e => ({ ...e, objectives: [...e.objectives, { id: String(Date.now()), text: "", done: false }] }));
   };
 
   const routines = data.routines || [];
@@ -18856,7 +18966,7 @@ function AddTaskModal({ data, setData, close }) {
   const [form, setForm] = useState({ title: "", assignee: _optionalChain([data, 'access', _10 => _10.members, 'access', _11 => _11[0], 'optionalAccess', _12 => _12.id]) || 1, due: "2026-04-01", category: "chores" });
   const save = () => {
     if (!form.title.trim()) return;
-    setData(d => ({ ...d, tasks: [...d.tasks, { ...form, id: Date.now(), done: false, assignee: Number(form.assignee) }] }));
+    setData(d => ({ ...d, tasks: [...d.tasks, { ...form, id: String(Date.now()), done: false, assignee: Number(form.assignee) }] }));
     close();
   };
   return (
@@ -18882,7 +18992,7 @@ function AddEventModal({ data, setData, close }) {
   const toggleMember = (id) => setForm(f => ({ ...f, members: f.members.includes(id) ? f.members.filter(x => x !== id) : [...f.members, id] }));
   const save = () => {
     if (!form.title.trim()) return;
-    setData(d => ({ ...d, events: [...d.events, { ...form, id: Date.now() }] }));
+    setData(d => ({ ...d, events: [...d.events, { ...form, id: String(Date.now()) }] }));
     close();
   };
   return (
@@ -18924,7 +19034,7 @@ function AddTransactionModal({ data, setData, close }) {
     const isIncome = form.type === "family pot";
     const amt = isIncome ? Math.abs(Number(form.amount)) : -Math.abs(Number(form.amount));
     const cat = isIncome ? "family pot" : form.category;
-    setData(d => ({ ...d, transactions: [...d.transactions, { ...form, id: Date.now(), amount: amt, member: Number(form.member), category: cat }] }));
+    setData(d => ({ ...d, transactions: [...d.transactions, { ...form, id: String(Date.now()), amount: amt, member: Number(form.member), category: cat }] }));
     close();
   };
   return (
@@ -18986,65 +19096,48 @@ function AddTransactionModal({ data, setData, close }) {
 
 // ── RECURRING EXPENSES ────────────────────────────────────────────────
 function RecurringTab({ data, setData, setModal }) {
-  const toggle = (id) => setData(d => ({
-    ...d,
-    recurring: d.recurring.map(r => r.id === id ? { ...r, active: !r.active } : r)
-  }));
-  const del = (id) => setData(d => ({ ...d, recurring: d.recurring.filter(r => r.id !== id) }));
+  const [editingR, setEditingR] = useState(null);
+  const toggle = (id) => setData(d => ({ ...d, recurring: d.recurring.map(r => r.id === id ? { ...r, active: !r.active } : r) }), 'recurring');
+  const del = (id) => setData(d => ({ ...d, recurring: d.recurring.filter(r => r.id !== id) }), 'recurring');
 
   const totalMonthly = data.recurring.filter(r => r.active).reduce((s, r) => s + r.amount, 0);
 
   return (
     React.createElement('div', { style: { display: "flex", flexDirection: "column", gap: 16 },}
-      /* Summary banner */
-      , React.createElement('div', { style: { background: COLORS.primary, borderRadius: 14, padding: "18px 20px", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" },}
+      , React.createElement('div', { style: { background: COLORS.primary, borderRadius: 16, padding: "18px 20px", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 20px rgba(79,70,229,0.2)" },}
         , React.createElement('div', null
-          , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 20, fontWeight: 700 },}, "🔁 Monthly Recurring"  )
-          , React.createElement('div', { style: { fontSize: 13, opacity: 0.75, marginTop: 3 },}, "Auto-added on the 1st of every month"      )
+          , React.createElement('div', { style: { fontSize: 20, fontWeight: 800 },}, "🔁 Monthly Recurring")
+          , React.createElement('div', { style: { fontSize: 13, opacity: 0.75, marginTop: 3 },}, "Auto-added on the 1st of every month")
         )
         , React.createElement('div', { style: { textAlign: "right" },}
-          , React.createElement('div', { style: { fontSize: 26, fontWeight: 700 },}, "£", totalMonthly.toLocaleString())
-          , React.createElement('div', { style: { fontSize: 12, opacity: 0.7 },}, "per month" )
+          , React.createElement('div', { style: { fontSize: 26, fontWeight: 800 },}, "£", totalMonthly.toLocaleString())
+          , React.createElement('div', { style: { fontSize: 12, opacity: 0.7 },}, "per month")
         )
       )
 
       , React.createElement('div', { style: { display: "flex", justifyContent: "flex-end" },}
-        , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-recurring"),}, "+ Add Recurring"  )
+        , React.createElement('button', { className: "btn-primary", onClick: () => setModal("add-recurring"),}, "+ Add Recurring")
       )
 
-      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },}
-        , React.createElement('div', { style: { fontFamily: FONT.display, fontSize: 16, fontWeight: 700, marginBottom: 14 },}, "Your Recurring Bills"  )
-        , data.recurring.length === 0 && React.createElement(Empty, { text: "No recurring expenses set up"    ,} )
-        , data.recurring.map(r => {
+      , React.createElement('div', { className: "card", style: { background: "#fff", borderRadius: 16, padding: 18, boxShadow: "0 4px 20px rgba(79,70,229,0.08)" },}
+        , React.createElement('div', { style: { fontSize: 16, fontWeight: 700, marginBottom: 14, color: COLORS.text },}, "Your Recurring Bills")
+        , data.recurring.length === 0 && React.createElement(Empty, { text: "No recurring expenses set up",} )
+        , [...data.recurring].sort((a, b) => b.amount - a.amount).map(r => {
           const member = data.members.find(m => m.id === r.member);
           return (
-            React.createElement('div', { key: r.id, style: {
-              display: "flex", alignItems: "center", gap: 12, padding: "12px 6px",
-              borderBottom: `1px solid ${COLORS.border}`,
-              opacity: r.active ? 1 : 0.45,
-            },}
+            React.createElement('div', { key: r.id, style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 6px", borderBottom: `1px solid ${COLORS.border}`, opacity: r.active ? 1 : 0.45 },}
               , React.createElement('div', { style: { fontSize: 24, width: 36, textAlign: "center" },}, r.icon || "🔁")
               , React.createElement('div', { style: { flex: 1 },}
                 , React.createElement('div', { style: { fontSize: 14, fontWeight: 600 },}, r.desc)
-                , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginTop: 2 },}, "Due on the "
-                     , React.createElement('strong', null, r.dayOfMonth, ["st","nd","rd"][((r.dayOfMonth+90)%100-10)%10-1]||"th"), " · "  , categoryIcons[r.category], " " , r.category
-                  , member && React.createElement(React.Fragment, null, " · "  , member.emoji, " " , member.name)
+                , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginTop: 2 },}
+                  , "Due on the ", React.createElement('strong', null, r.dayOfMonth, ["st","nd","rd"][((r.dayOfMonth+90)%100-10)%10-1]||"th"), " · ", categoryIcons[r.category], " ", r.category
+                  , member && React.createElement(React.Fragment, null, " · ", member.emoji, " ", member.name)
                 )
               )
-              , React.createElement('div', { style: { fontWeight: 700, color: COLORS.danger, fontSize: 15, minWidth: 60, textAlign: "right" },}, "-£"
-                , r.amount.toFixed(0)
-              )
-              /* Toggle active */
-              , React.createElement('button', { onClick: () => toggle(r.id), title: r.active ? "Pause" : "Resume", style: {
-                background: r.active ? COLORS.success : COLORS.border,
-                border: "none", borderRadius: 999, width: 38, height: 22,
-                position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0,
-              },}
-                , React.createElement('div', { style: {
-                  position: "absolute", top: 3, left: r.active ? 18 : 3,
-                  width: 16, height: 16, borderRadius: "50%", background: "#fff",
-                  transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                },} )
+              , React.createElement('div', { style: { fontWeight: 700, color: COLORS.danger, fontSize: 15, minWidth: 55, textAlign: "right" },}, "-£", r.amount.toFixed(0))
+              , React.createElement('button', { onClick: () => setEditingR(r), title: "Edit", style: { background: COLORS.soft, border: "none", borderRadius: 8, padding: "5px 8px", fontSize: 13, color: COLORS.primary, cursor: "pointer", flexShrink: 0 },}, "✏️")
+              , React.createElement('button', { onClick: () => toggle(r.id), title: r.active ? "Pause" : "Resume", style: { background: r.active ? COLORS.success : COLORS.border, border: "none", borderRadius: 999, width: 38, height: 22, position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 },}
+                , React.createElement('div', { style: { position: "absolute", top: 3, left: r.active ? 18 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" },})
               )
               , React.createElement('button', { onClick: () => del(r.id), style: { background: "none", border: "none", color: "#ccc", fontSize: 16, padding: "0 2px" },}, "✕")
             )
@@ -19052,12 +19145,45 @@ function RecurringTab({ data, setData, setModal }) {
         })
       )
 
-      /* How it works */
-      , React.createElement('div', { style: { background: "#EFF7E8", borderRadius: 12, padding: "14px 16px", border: `1px solid #c5e0a8` },}
-        , React.createElement('div', { style: { fontWeight: 700, fontSize: 13, color: COLORS.primary, marginBottom: 6 },}, "⚙️ How it works"   )
-        , React.createElement('div', { style: { fontSize: 13, color: "#3a5c1e", lineHeight: 1.6 },}, "Active recurring expenses are "
-              , React.createElement('strong', null, "automatically added" ), " to your Finance tracker each month on their due date. Toggle the switch to pause any bill temporarily without deleting it."
-        )
+      , React.createElement('div', { style: { background: "#EEF2FF", borderRadius: 12, padding: "14px 16px", border: `1px solid #C7D2FE` },}
+        , React.createElement('div', { style: { fontWeight: 700, fontSize: 13, color: COLORS.primary, marginBottom: 6 },}, "⚙️ How it works")
+        , React.createElement('div', { style: { fontSize: 13, color: COLORS.primary, lineHeight: 1.6, opacity: 0.8 },}, "Active recurring expenses are ", React.createElement('strong', null, "automatically added"), " to your Finance tracker each month on their due date. Toggle the switch to pause any bill temporarily without deleting it.")
+      )
+
+      , editingR && React.createElement(EditRecurringModal, { data: data, recurring: editingR, close: () => setEditingR(null),
+          save: (updated) => { setData(d => ({ ...d, recurring: d.recurring.map(r => r.id === updated.id ? updated : r) }), 'recurring'); setEditingR(null); },})
+    )
+  );
+}
+
+function EditRecurringModal({ data, recurring, close, save }) {
+  const ICONS = ["🏠","📶","📱","🚗","📺","💊","🏋️","🎵","☕","🐾","📚","⚡"];
+  const [form, setForm] = useState({ ...recurring, amount: String(recurring.amount) });
+  const handleSave = () => {
+    if (!form.desc.trim() || !form.amount) return;
+    save({ ...form, amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member) });
+  };
+  return (
+    React.createElement(Modal, { title: "✏️ Edit Recurring Expense", close: close, onSave: handleSave,}
+      , React.createElement('label', null, "Description")
+      , React.createElement('input', { type: "text", value: form.desc, onChange: e => setForm(f => ({ ...f, desc: e.target.value })), placeholder: "e.g. Spotify",})
+      , React.createElement('label', null, "Monthly Amount (£)")
+      , React.createElement('input', { type: "number", value: form.amount, onChange: e => setForm(f => ({ ...f, amount: e.target.value })), placeholder: "0.00", min: "0",})
+      , React.createElement('label', null, "Day of Month (1–28)")
+      , React.createElement('input', { type: "number", value: form.dayOfMonth, onChange: e => setForm(f => ({ ...f, dayOfMonth: Math.min(28, Math.max(1, Number(e.target.value))) })), min: "1", max: "28",})
+      , React.createElement('label', null, "Category")
+      , React.createElement('select', { value: form.category, onChange: e => setForm(f => ({ ...f, category: e.target.value })),}
+        , ["utilities","entertainment","groceries","kids","dining","other"].map(c => React.createElement('option', { key: c, value: c,}, categoryIcons[c], " ", c))
+      )
+      , React.createElement('label', null, "Assigned to")
+      , React.createElement('select', { value: form.member, onChange: e => setForm(f => ({ ...f, member: e.target.value })),}
+        , data.members.map(m => React.createElement('option', { key: m.id, value: m.id,}, m.emoji, " ", m.name))
+      )
+      , React.createElement('label', null, "Icon")
+      , React.createElement('div', { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 },}
+        , ICONS.map(ic => (
+          React.createElement('button', { key: ic, onClick: () => setForm(f => ({ ...f, icon: ic })), style: { width: 36, height: 36, borderRadius: 8, border: `2px solid ${form.icon === ic ? COLORS.primary : COLORS.border}`, background: form.icon === ic ? COLORS.soft : "transparent", fontSize: 18 },}, ic)
+        ))
       )
     )
   );
@@ -19068,7 +19194,7 @@ function AddRecurringModal({ data, setData, close }) {
   const [form, setForm] = useState({ desc: "", amount: "", category: "utilities", dayOfMonth: 1, member: _optionalChain([data, 'access', _19 => _19.members, 'access', _20 => _20[0], 'optionalAccess', _21 => _21.id]) || 1, icon: "🏠" });
   const save = () => {
     if (!form.desc.trim() || !form.amount) return;
-    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: Date.now(), amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member), active: true }] }));
+    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: String(Date.now()), amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member), active: true }] }));
     close();
   };
   return (
@@ -19164,7 +19290,7 @@ function AddMemberModal({ data, setData, close }) {
 
   const save = () => {
     if (!form.name.trim()) return;
-    setData(d => ({ ...d, members: [...d.members, { ...form, id: Date.now() }] }));
+    setData(d => ({ ...d, members: [...d.members, { ...form, id: String(Date.now()) }] }));
     close();
   };
   return (
