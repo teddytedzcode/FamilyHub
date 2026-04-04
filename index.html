@@ -17253,23 +17253,35 @@ exports.version = "19.2.4";
 
     async function dbSave(table, items) {
       if (!ONLINE_MODE()) return;
-      const rows = Array.isArray(items)
-        ? items.map(item => ({ id: String(item.id), data: item }))
-        : [{ id: String(items.key || 'state'), data: items }];
-      const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
-      if (error) console.error('Save error', table, JSON.stringify(error));
+      try {
+        const rows = Array.isArray(items)
+          ? items.map(item => ({ id: String(item.id), data: item }))
+          : [{ id: String(items.key || 'state'), data: items }];
+        const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+        if (error) console.error('Save error', table, JSON.stringify(error));
+      } catch(e) {
+        console.warn('Save skipped (environment error):', table, e && e.message);
+      }
     }
 
     async function dbDelete(table, id) {
       if (!ONLINE_MODE()) return;
-      const { error } = await supabase.from(table).delete().eq('id', String(id));
-      if (error) console.error('Delete error', table, JSON.stringify(error));
+      try {
+        const { error } = await supabase.from(table).delete().eq('id', String(id));
+        if (error) console.error('Delete error', table, JSON.stringify(error));
+      } catch(e) {
+        console.warn('Delete skipped (environment error):', table, e && e.message);
+      }
     }
 
     async function dbSaveAppState(key, value) {
       if (!ONLINE_MODE()) return;
-      const { error } = await supabase.from('app_state').upsert({ key: key, value: value }, { onConflict: 'key' });
-      if (error) console.error('AppState error', JSON.stringify(error));
+      try {
+        const { error } = await supabase.from('app_state').upsert({ key: key, value: value }, { onConflict: 'key' });
+        if (error) console.error('AppState error', JSON.stringify(error));
+      } catch(e) {
+        console.warn('AppState save skipped (environment error):', e && e.message);
+      }
     }
 
     async function dbLoadAppState(key) {
@@ -17574,8 +17586,7 @@ function FamilyApp() {
       const [data, setData] = useState(null); // null = loading
       const [modal, setModal] = useState(null);
       const [syncStatus, setSyncStatus] = useState("loading"); // loading | ok | syncing | error
-      const syncQueue = useRef({});
-      const syncTimer = useRef(null);
+      const syncTimer = useRef({});
 
       // ── LOAD FROM SUPABASE ON MOUNT ──────────────────────────────
       useEffect(() => {
@@ -17626,7 +17637,9 @@ function FamilyApp() {
           } catch(e) {
             console.error('[TFH] Load error:', e);
             setSyncStatus("error");
-            setData(initialState);
+            // Do NOT fall back to initialState — that would wipe real data
+            // Show empty state only if data hasn't been set yet
+            setData(d => d || initialState);
           }
         }
         load();
@@ -17640,7 +17653,8 @@ function FamilyApp() {
         const channels = ['members','tasks','events','transactions','recurring','notes','routines'].map(table => {
           return supabase.channel(`realtime-${table}`)
             .on('postgres_changes', { event: '*', schema: 'public', table }, async () => {
-              // Re-fetch the changed table
+              // Skip re-fetch if we have a pending save for this table (avoid overwriting local changes)
+              if (pendingSaves.current[table]) return;
               const { data: rows } = await supabase.from(table).select('*');
               if (rows) {
                 setData(d => ({ ...d, [table]: rowsToArray(rows) }));
@@ -17651,39 +17665,43 @@ function FamilyApp() {
         return () => channels.forEach(c => supabase.removeChannel(c));
       }, [!!data]);
 
-      // ── DEBOUNCED SYNC TO SUPABASE ───────────────────────────────
+      // ── SYNC TO SUPABASE (immediate per table, no shared timer race) ─
+      const pendingSaves = useRef({});
       const syncToDb = useCallback((table, items, deletedId = null) => {
         setSyncStatus("syncing");
-        clearTimeout(syncTimer.current);
-        if (!syncQueue.current[table]) syncQueue.current[table] = { items: null, deletedIds: [] };
-        if (items !== null) syncQueue.current[table].items = items;
-        if (deletedId !== null) syncQueue.current[table].deletedIds.push(deletedId);
-        syncTimer.current = setTimeout(async () => {
-          const queue = { ...syncQueue.current };
-          syncQueue.current = {};
+        // Accumulate items and deletes per table
+        if (!pendingSaves.current[table]) pendingSaves.current[table] = { items: null, deletedIds: [] };
+        if (items !== null) pendingSaves.current[table].items = items;
+        if (deletedId !== null) pendingSaves.current[table].deletedIds.push(deletedId);
+        // Clear any existing timer for THIS table only
+        if (syncTimer.current[table]) clearTimeout(syncTimer.current[table]);
+        syncTimer.current[table] = setTimeout(async () => {
+          const entry = pendingSaves.current[table];
+          if (!entry) return;
+          delete pendingSaves.current[table];
+          delete syncTimer.current[table];
           try {
-            await Promise.all(Object.entries(queue).map(async ([t, { items, deletedIds }]) => {
-              if (items) await dbSave(t, items);
-              for (const id of deletedIds) await dbDelete(t, id);
-            }));
+            if (entry.items) await dbSave(table, entry.items);
+            for (const id of entry.deletedIds) await dbDelete(table, id);
             setSyncStatus("ok");
           } catch(e) {
-            console.error('[TFH] Load error:', e);
+            console.error('[TFH] Sync error:', table, e);
             setSyncStatus("error");
           }
-        }, 600);
+        }, 400);
       }, []);
 
       // ── FLUSH PENDING SAVES BEFORE PAGE UNLOAD ───────────────────
       useEffect(() => {
         const flush = () => {
-          clearTimeout(syncTimer.current);
-          const queue = { ...syncQueue.current };
-          syncQueue.current = {};
-          Object.entries(queue).forEach(([t, { items, deletedIds }]) => {
+          // Cancel all pending timers and save immediately
+          Object.keys(syncTimer.current).forEach(t => clearTimeout(syncTimer.current[t]));
+          syncTimer.current = {};
+          Object.entries(pendingSaves.current).forEach(([t, { items, deletedIds }]) => {
             if (items) dbSave(t, items);
             if (deletedIds) deletedIds.forEach(id => dbDelete(t, id));
           });
+          pendingSaves.current = {};
         };
         window.addEventListener('beforeunload', flush);
         return () => window.removeEventListener('beforeunload', flush);
