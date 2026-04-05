@@ -17238,17 +17238,24 @@ exports.version = "19.2.4";
 
     // ── DB HELPERS ───────────────────────────────────────────────────
     async function dbLoad() {
-      if (!ONLINE_MODE()) return {};
-      const results = {};
-      await Promise.all(TABLES.map(async (t) => {
-        const { data, error } = await supabase.from(t).select('*');
-        if (!error && data) results[t] = data;
-      }));
-      return results;
+      if (!ONLINE_MODE()) return null;
+      try {
+        const results = {};
+        await Promise.all(TABLES.map(async (t) => {
+          const { data, error } = await supabase.from(t).select('*');
+          if (!error && data) results[t] = data;
+        }));
+        // If we got no tables back at all, treat as fetch failure
+        if (Object.keys(results).length === 0) return null;
+        return results;
+      } catch(e) {
+        console.error('[TFH] dbLoad failed:', e);
+        return null;
+      }
     }
 
     function rowsToArray(rows) {
-      return (rows || []).map(r => r.data);
+      return (rows || []).map(r => r.data).filter(Boolean);
     }
 
     async function dbSave(table, items) {
@@ -17345,6 +17352,30 @@ exports.version = "19.2.4";
       transactions: 'Finance', recurring: 'Recurring', notes: 'Notes', routines: 'Routines',
     };
 
+    // ── LOCAL CACHE HELPERS ──────────────────────────────────────────
+    const CACHE_KEY = 'tfh_data_cache';
+
+    function saveToCache(data) {
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          members: data.members,
+          tasks: data.tasks,
+          events: data.events,
+          transactions: data.transactions,
+          recurring: data.recurring,
+          notes: data.notes,
+          routines: data.routines,
+          recurringApplied: data.recurringApplied || [],
+        }));
+      } catch(e) {}
+    }
+
+    function loadFromCache() {
+      try {
+        const s = localStorage.getItem(CACHE_KEY);
+        return s ? JSON.parse(s) : null;
+      } catch(e) { return null; }
+    }
 
     const initialState = {
       members: [
@@ -17352,22 +17383,9 @@ exports.version = "19.2.4";
         { id: 2, name: "Dad", color: "#2D5016", emoji: "👨" },
         { id: 3, name: "Kid 1", color: "#6BA3E0", emoji: "🧒" },
       ],
-      tasks: [
-        { id: 1, title: "Grocery shopping", assignee: 1, due: "2026-03-30", done: false, category: "chores" },
-        { id: 2, title: "School pickup", assignee: 3, due: _TODAY, done: true, category: "kids" },
-        { id: 3, title: "Pay electricity bill", assignee: 2, due: "2026-04-01", done: false, category: "finance" },
-      ],
-      events: [
-        { id: 1, title: "Family Dinner", date: "2026-03-29", time: "18:30", members: [1, 2, 3], color: "#E8A020" },
-        { id: 2, title: "Soccer Practice", date: "2026-03-31", time: "16:00", members: [3], color: "#6BA3E0" },
-        { id: 3, title: "Date Night", date: "2026-04-05", time: "19:00", members: [1, 2], color: "#2D5016" },
-      ],
-      transactions: [
-        { id: 1, desc: "Supermarket", amount: -85.40, category: "groceries", date: "2026-03-25", member: 1 },
-        { id: 2, desc: "Family Pot", amount: 3500, category: "family pot", date: "2026-03-25", member: 2 },
-        { id: 3, desc: "School Trip", amount: -45, category: "kids", date: "2026-03-22", member: 3 },
-        { id: 4, desc: "Takeaway", amount: -32, category: "dining", date: "2026-03-20", member: 1 },
-      ],
+      tasks: [],
+      events: [],
+      transactions: [],
       recurring: [
         { id: 2, desc: "Broadband & SIM", amount: 65, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "📶" },
         { id: 3, desc: "Streaming", amount: 10, category: "entertainment", dayOfMonth: 1, member: 1, active: true, icon: "📺" },
@@ -17378,18 +17396,8 @@ exports.version = "19.2.4";
         { id: 8, desc: "Life Insurance", amount: 17, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "🛡️" },
       ],
       recurringApplied: [],
-      notes: [
-        { id: 1, title: "School run rota", body: "Mon/Wed: Mum. Tue/Thu/Fri: Dad. Update if plans change.", createdAt: "2026-03-10T09:00:00", editedAt: null },
-        { id: 2, title: "Grocery list reminders", body: "Always check oat milk, eggs, and bread before ordering.", createdAt: "2026-03-20T14:30:00", editedAt: null },
-      ],
-      routines: [
-        { id: 1, title: "Morning Routine", child: "Kid 1", frequency: "daily", icon: "🌅", color: "#6BA3E0", lastDone: "2026-03-27",
-          objectives: [{ id: 101, text: "Brush teeth", done: false }, { id: 102, text: "Get dressed", done: false }, { id: 103, text: "Eat breakfast", done: true }, { id: 104, text: "Pack school bag", done: false }] },
-        { id: 2, title: "Homework Time", child: "Kid 1", frequency: "weekly", icon: "📚", color: "#E8A020", lastDone: "2026-03-24",
-          objectives: [{ id: 201, text: "Complete maths worksheet", done: false }, { id: 202, text: "Read for 20 minutes", done: false }, { id: 203, text: "Spelling practice", done: false }] },
-        { id: 3, title: "Room Tidy", child: "Kid 1", frequency: "weekly", icon: "🧹", color: "#27AE60", lastDone: "2026-03-21",
-          objectives: [{ id: 301, text: "Make bed", done: false }, { id: 302, text: "Put toys away", done: false }, { id: 303, text: "Hoover floor", done: false }] },
-      ],
+      notes: [],
+      routines: [],
     };
 
 
@@ -17587,59 +17595,91 @@ function FamilyApp() {
       const [modal, setModal] = useState(null);
       const [syncStatus, setSyncStatus] = useState("loading"); // loading | ok | syncing | error
       const syncTimer = useRef({});
+      const pendingSaves = useRef({});
 
       // ── LOAD FROM SUPABASE ON MOUNT ──────────────────────────────
       useEffect(() => {
         async function load() {
           setSyncStatus("loading");
-          console.log('[TFH] Load starting, ONLINE_MODE:', ONLINE_MODE(), 'window.supabase:', typeof window.supabase);
-          try {
-            const rows = await dbLoad();
-            // Offline mode or DB empty - use initialState
-            console.log('[TFH] ONLINE_MODE check:', ONLINE_MODE());
-            if (!ONLINE_MODE()) {
-              console.log('[TFH] Going offline mode');
-              setData(initialState);
-              setSyncStatus("offline");
-              return;
+
+          // Always try Supabase first — it is the source of truth
+          if (ONLINE_MODE()) {
+            try {
+              const rows = await dbLoad();
+
+              if (rows && rows.members) {
+                // Supabase responded — check if it has real data
+                const hasMembers = rows.members.length > 0;
+
+                if (hasMembers) {
+                  // Load from DB — this is the real data
+                  const recurringApplied = await dbLoadAppState('recurringApplied') || [];
+                  const loaded = {
+                    members: rowsToArray(rows.members),
+                    tasks: rowsToArray(rows.tasks || []),
+                    events: rowsToArray(rows.events || []),
+                    transactions: rowsToArray(rows.transactions || []),
+                    recurring: rowsToArray(rows.recurring || []),
+                    notes: rowsToArray(rows.notes || []),
+                    routines: rowsToArray(rows.routines || []),
+                    recurringApplied,
+                  };
+                  setData(loaded);
+                  saveToCache(loaded);
+                  setSyncStatus("ok");
+                  return;
+                } else {
+                  // DB is empty — check cache before seeding defaults
+                  const cached = loadFromCache();
+                  if (cached && cached.members && cached.members.length > 0) {
+                    // Cache has real user data — restore it to DB and use it
+                    console.log('[TFH] DB empty but cache found — restoring from cache');
+                    setData(cached);
+                    // Restore cache back to Supabase in background
+                    Object.entries(cached).forEach(([key, val]) => {
+                      if (key === 'recurringApplied') {
+                        dbSaveAppState('recurringApplied', val);
+                      } else if (Array.isArray(val) && val.length > 0) {
+                        dbSave(key, val);
+                      }
+                    });
+                    setSyncStatus("ok");
+                    return;
+                  }
+                  // Truly first run — seed blank state
+                  console.log('[TFH] First run — seeding blank state');
+                  const blank = {
+                    members: initialState.members,
+                    tasks: [], events: [], transactions: [],
+                    recurring: initialState.recurring,
+                    notes: [], routines: [],
+                    recurringApplied: [],
+                  };
+                  await Promise.all([
+                    dbSave('members', blank.members),
+                    dbSave('recurring', blank.recurring),
+                    dbSaveAppState('recurringApplied', []),
+                  ]);
+                  setData(blank);
+                  saveToCache(blank);
+                  setSyncStatus("ok");
+                  return;
+                }
+              }
+            } catch(e) {
+              console.error('[TFH] Supabase load failed:', e);
             }
-            console.log('[TFH] DB rows:', JSON.stringify(Object.keys(rows)));
-            const hasData = rows.members && rows.members.length > 0;
-            console.log('[TFH] hasData:', hasData);
-            if (!hasData) {
-              // Seed all tables
-              await Promise.all([
-                dbSave('members', initialState.members),
-                dbSave('tasks', initialState.tasks),
-                dbSave('events', initialState.events),
-                dbSave('transactions', initialState.transactions),
-                dbSave('recurring', initialState.recurring),
-                dbSave('notes', initialState.notes),
-                dbSave('routines', initialState.routines),
-                dbSaveAppState('recurringApplied', initialState.recurringApplied),
-              ]);
-              setData(initialState);
-            } else {
-              const recurringApplied = await dbLoadAppState('recurringApplied') || [];
-              const loaded = {
-                members: rowsToArray(rows.members),
-                tasks: rowsToArray(rows.tasks),
-                events: rowsToArray(rows.events),
-                transactions: rowsToArray(rows.transactions),
-                recurring: rowsToArray(rows.recurring),
-                notes: rowsToArray(rows.notes),
-                routines: rowsToArray(rows.routines),
-                recurringApplied,
-              };
-              setData(loaded);
-            }
-            setSyncStatus("ok");
-          } catch(e) {
-            console.error('[TFH] Load error:', e);
-            setSyncStatus("error");
-            // Do NOT fall back to initialState — that would wipe real data
-            // Show empty state only if data hasn't been set yet
-            setData(d => d || initialState);
+          }
+
+          // Supabase unavailable — fall back to cache
+          const cached = loadFromCache();
+          if (cached) {
+            console.log('[TFH] Offline — using cache');
+            setData(cached);
+            setSyncStatus("offline");
+          } else {
+            setData({ ...initialState, tasks: [], events: [], transactions: [], notes: [], routines: [], recurringApplied: [] });
+            setSyncStatus("offline");
           }
         }
         load();
@@ -17657,7 +17697,11 @@ function FamilyApp() {
               if (pendingSaves.current[table]) return;
               const { data: rows } = await supabase.from(table).select('*');
               if (rows) {
-                setData(d => ({ ...d, [table]: rowsToArray(rows) }));
+                setData(d => {
+                  const next = { ...d, [table]: rowsToArray(rows) };
+                  saveToCache(next);
+                  return next;
+                });
               }
             })
             .subscribe();
@@ -17666,7 +17710,6 @@ function FamilyApp() {
       }, [!!data]);
 
       // ── SYNC TO SUPABASE (immediate per table, no shared timer race) ─
-      const pendingSaves = useRef({});
       const syncToDb = useCallback((table, items, deletedId = null) => {
         setSyncStatus("syncing");
         // Accumulate items and deletes per table
@@ -17711,30 +17754,32 @@ function FamilyApp() {
       const setDataAndSync = useCallback((updater, table, deletedId) => {
         setData(prev => {
           const next = typeof updater === 'function' ? updater(prev) : updater;
+          // Always update cache immediately so refresh never loses data
+          saveToCache(next);
           if (table) {
             if (table === 'recurringApplied') {
               dbSaveAppState('recurringApplied', next.recurringApplied);
+            } else if (deletedId) {
+              // DELETE operation — only delete the row, don't upsert remaining
+              dbDelete(table, deletedId);
+              sendPushNotification('🗑️ ' + (PUSH_LABELS[table] || table) + ' Updated', 'An item was deleted');
             } else {
-              syncToDb(table, next[table], deletedId);
+              // ADD or EDIT operation — upsert the changed items
+              syncToDb(table, next[table], null);
+              const prevLen = (prev[table] || []).length;
+              const nextLen = (next[table] || []).length;
               const label = PUSH_LABELS[table] || table;
-              if (deletedId) {
-                sendPushNotification('🗑️ ' + label + ' Updated', 'An item was deleted from ' + label);
+              if (nextLen > prevLen) {
+                sendPushNotification('✨ New in ' + label, 'A new item was added to ' + label);
               } else {
-                const prevLen = (prev[table] || []).length;
-                const nextLen = (next[table] || []).length;
-                if (nextLen > prevLen) {
-                  sendPushNotification('✨ New in ' + label, 'A new item was added to ' + label);
-                } else {
-                  sendPushNotification('✏️ ' + label + ' Updated', 'An item was edited in ' + label);
-                }
+                sendPushNotification('✏️ ' + label + ' Updated', 'An item was edited in ' + label);
               }
             }
           } else {
             ['members','tasks','events','transactions','recurring','notes','routines'].forEach(t => {
               if (JSON.stringify(prev[t]) !== JSON.stringify(next[t])) {
                 syncToDb(t, next[t]);
-                const label = PUSH_LABELS[t] || t;
-                sendPushNotification('🔄 ' + label + ' Updated', 'Changes were made in ' + label);
+                sendPushNotification('🔄 ' + (PUSH_LABELS[t] || t) + ' Updated', 'Changes were made in ' + (PUSH_LABELS[t] || t));
               }
             });
             if (JSON.stringify(prev.recurringApplied) !== JSON.stringify(next.recurringApplied)) {
@@ -18272,7 +18317,7 @@ function Calendar({ data, setData, setModal }) {
   const [month, setMonth] = useState({ year: 2026, month: 2 });
   const [editingEvent, setEditingEvent] = useState(null);
 
-  const deleteEvent = (id) => setData(d => ({ ...d, events: d.events.filter(e => e.id !== id) }));
+  const deleteEvent = (id) => setData(d => ({ ...d, events: d.events.filter(e => e.id !== id) }), 'events', id);
 
   const firstDay = new Date(month.year, month.month, 1);
   const daysInMonth = new Date(month.year, month.month + 1, 0).getDate();
@@ -18333,7 +18378,7 @@ function Calendar({ data, setData, setModal }) {
       , editingEvent && (
         React.createElement(EditEventModal, { event: editingEvent, data: data,
           close: () => setEditingEvent(null),
-          save: (updated) => { setData(d => ({ ...d, events: d.events.map(e => e.id === updated.id ? updated : e) })); setEditingEvent(null); },}
+          save: (updated) => { setData(d => ({ ...d, events: d.events.map(e => e.id === updated.id ? updated : e) }), 'events'); setEditingEvent(null); },}
         )
       )
     )
@@ -18343,7 +18388,7 @@ function Calendar({ data, setData, setModal }) {
 function Tasks({ data, setData, setModal }) {
   const [editingTask, setEditingTask] = useState(null);
   const toggleTask = (id) => setData(d => ({ ...d, tasks: d.tasks.map(t => t.id === id ? { ...t, done: !t.done } : t) }), 'tasks');
-  const deleteTask = (id) => setData(d => ({ ...d, tasks: d.tasks.filter(t => t.id !== id) }), 'tasks');
+  const deleteTask = (id) => setData(d => ({ ...d, tasks: d.tasks.filter(t => t.id !== id) }), 'tasks', id);
 
   const pending = [...data.tasks].filter(t => !t.done).sort((a,b) => b.due.localeCompare(a.due));
   const done = [...data.tasks].filter(t => t.done).sort((a,b) => b.due.localeCompare(a.due));
@@ -18521,14 +18566,14 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
         , [...data.transactions].sort((a, b) => b.date.localeCompare(a.date)).map(tx => (
           React.createElement(TxRow, { key: tx.id, tx: tx, data: data,
             onEdit: () => setEditingTx(tx),
-            onDelete: () => setData(d => ({ ...d, transactions: d.transactions.filter(t => t.id !== tx.id) }), 'transactions'),}
+            onDelete: () => setData(d => ({ ...d, transactions: d.transactions.filter(t => t.id !== tx.id) }), 'transactions', tx.id),}
           )
         ))
       )
       , editingTx && (
         React.createElement(EditTransactionModal, { tx: editingTx, data: data,
           close: () => setEditingTx(null),
-          save: (updated) => { setData(d => ({ ...d, transactions: d.transactions.map(t => t.id === updated.id ? updated : t) })); setEditingTx(null); },}
+          save: (updated) => { setData(d => ({ ...d, transactions: d.transactions.map(t => t.id === updated.id ? updated : t) }), 'transactions'); setEditingTx(null); },}
         )
       )
     )
@@ -18544,7 +18589,7 @@ function Family({ data, setData, setModal }) {
   const spendByMember = (id) => Math.abs(data.transactions.filter(t => t.member === id && t.amount < 0).reduce((s, t) => s + t.amount, 0));
 
   const deleteMember = (id) => {
-    setData(d => ({ ...d, members: d.members.filter(m => m.id !== id) }));
+    setData(d => ({ ...d, members: d.members.filter(m => m.id !== id) }), 'members', id);
     setConfirmDelete(null);
   };
 
@@ -18589,7 +18634,7 @@ function Family({ data, setData, setModal }) {
           member: editingMember,
           close: () => setEditingMember(null),
           save: (updated) => {
-            setData(d => ({ ...d, members: d.members.map(m => m.id === updated.id ? updated : m) }));
+            setData(d => ({ ...d, members: d.members.map(m => m.id === updated.id ? updated : m) }), 'members');
             setEditingMember(null);
           },}
         )
@@ -18638,15 +18683,15 @@ function Notes({ data, setData }) {
     if (!form.title.trim() && !form.body.trim()) return;
     const now = new Date().toISOString();
     if (isNew) {
-      setData(d => ({ ...d, notes: [{ id: String(Date.now()), title: form.title, body: form.body, createdAt: now, editedAt: null }, ...d.notes] }));
+      setData(d => ({ ...d, notes: [{ id: String(Date.now()), title: form.title, body: form.body, createdAt: now, editedAt: null }, ...d.notes] }), 'notes');
     } else {
-      setData(d => ({ ...d, notes: d.notes.map(n => n.id === editingNote.id ? { ...n, title: form.title, body: form.body, editedAt: now } : n) }));
+      setData(d => ({ ...d, notes: d.notes.map(n => n.id === editingNote.id ? { ...n, title: form.title, body: form.body, editedAt: now } : n) }), 'notes');
     }
     setEditingNote(null);
   };
 
   const deleteNote = (id) => {
-    setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== id) }));
+    setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== id) }), 'notes', id);
     setConfirmDelete(null);
   };
 
@@ -18750,15 +18795,15 @@ function ChildRoutines({ data, setData }) {
   const saveRoutine = () => {
     if (!editing.title.trim()) return;
     if (isNew) {
-      setData(d => ({ ...d, routines: [...(d.routines || []), { ...editing, id: String(Date.now()), lastDone: today }] }));
+      setData(d => ({ ...d, routines: [...(d.routines || []), { ...editing, id: String(Date.now()), lastDone: today }] }), 'routines');
     } else {
-      setData(d => ({ ...d, routines: d.routines.map(r => r.id === editing.id ? editing : r) }));
+      setData(d => ({ ...d, routines: d.routines.map(r => r.id === editing.id ? editing : r) }), 'routines');
     }
     setEditing(null);
   };
 
   const deleteRoutine = (id) => {
-    setData(d => ({ ...d, routines: d.routines.filter(r => r.id !== id) }));
+    setData(d => ({ ...d, routines: d.routines.filter(r => r.id !== id) }), 'routines', id);
     setConfirmDelete(null);
     if (expanded === id) setExpanded(null);
   };
@@ -18770,7 +18815,7 @@ function ChildRoutines({ data, setData }) {
         ? { ...r, objectives: r.objectives.map(o => o.id === objId ? { ...o, done: !o.done } : o) }
         : r
       )
-    }));
+    }), 'routines');
   };
 
   const markAllDone = (routineId) => {
@@ -18780,7 +18825,7 @@ function ChildRoutines({ data, setData }) {
         ? { ...r, lastDone: today, objectives: r.objectives.map(o => ({ ...o, done: true })) }
         : r
       )
-    }));
+    }), 'routines');
   };
 
   const resetRoutine = (routineId) => {
@@ -18790,7 +18835,7 @@ function ChildRoutines({ data, setData }) {
         ? { ...r, objectives: r.objectives.map(o => ({ ...o, done: false })) }
         : r
       )
-    }));
+    }), 'routines');
   };
 
   const addObjective = () => {
@@ -18984,7 +19029,7 @@ function AddTaskModal({ data, setData, close }) {
   const [form, setForm] = useState({ title: "", assignee: _optionalChain([data, 'access', _10 => _10.members, 'access', _11 => _11[0], 'optionalAccess', _12 => _12.id]) || 1, due: "2026-04-01", category: "chores" });
   const save = () => {
     if (!form.title.trim()) return;
-    setData(d => ({ ...d, tasks: [...d.tasks, { ...form, id: String(Date.now()), done: false, assignee: Number(form.assignee) }] }));
+    setData(d => ({ ...d, tasks: [...d.tasks, { ...form, id: String(Date.now()), done: false, assignee: Number(form.assignee) }] }), 'tasks');
     close();
   };
   return (
@@ -19010,7 +19055,7 @@ function AddEventModal({ data, setData, close }) {
   const toggleMember = (id) => setForm(f => ({ ...f, members: f.members.includes(id) ? f.members.filter(x => x !== id) : [...f.members, id] }));
   const save = () => {
     if (!form.title.trim()) return;
-    setData(d => ({ ...d, events: [...d.events, { ...form, id: String(Date.now()) }] }));
+    setData(d => ({ ...d, events: [...d.events, { ...form, id: String(Date.now()) }] }), 'events');
     close();
   };
   return (
@@ -19052,7 +19097,7 @@ function AddTransactionModal({ data, setData, close }) {
     const isIncome = form.type === "family pot";
     const amt = isIncome ? Math.abs(Number(form.amount)) : -Math.abs(Number(form.amount));
     const cat = isIncome ? "family pot" : form.category;
-    setData(d => ({ ...d, transactions: [...d.transactions, { ...form, id: String(Date.now()), amount: amt, member: Number(form.member), category: cat }] }));
+    setData(d => ({ ...d, transactions: [...d.transactions, { ...form, id: String(Date.now()), amount: amt, member: Number(form.member), category: cat }] }), 'transactions');
     close();
   };
   return (
@@ -19116,7 +19161,7 @@ function AddTransactionModal({ data, setData, close }) {
 function RecurringTab({ data, setData, setModal }) {
   const [editingR, setEditingR] = useState(null);
   const toggle = (id) => setData(d => ({ ...d, recurring: d.recurring.map(r => r.id === id ? { ...r, active: !r.active } : r) }), 'recurring');
-  const del = (id) => setData(d => ({ ...d, recurring: d.recurring.filter(r => r.id !== id) }), 'recurring');
+  const del = (id) => setData(d => ({ ...d, recurring: d.recurring.filter(r => r.id !== id) }), 'recurring', id);
 
   const totalMonthly = data.recurring.filter(r => r.active).reduce((s, r) => s + r.amount, 0);
 
@@ -19212,7 +19257,7 @@ function AddRecurringModal({ data, setData, close }) {
   const [form, setForm] = useState({ desc: "", amount: "", category: "utilities", dayOfMonth: 1, member: _optionalChain([data, 'access', _19 => _19.members, 'access', _20 => _20[0], 'optionalAccess', _21 => _21.id]) || 1, icon: "🏠" });
   const save = () => {
     if (!form.desc.trim() || !form.amount) return;
-    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: String(Date.now()), amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member), active: true }] }));
+    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: String(Date.now()), amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member), active: true }] }), 'recurring');
     close();
   };
   return (
@@ -19308,7 +19353,7 @@ function AddMemberModal({ data, setData, close }) {
 
   const save = () => {
     if (!form.name.trim()) return;
-    setData(d => ({ ...d, members: [...d.members, { ...form, id: String(Date.now()) }] }));
+    setData(d => ({ ...d, members: [...d.members, { ...form, id: String(Date.now()) }] }), 'members');
     close();
   };
   return (
