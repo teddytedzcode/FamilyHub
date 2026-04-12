@@ -17854,44 +17854,81 @@ function FamilyApp() {
         setIsListening(false);
       };
 
+      const getApiKey = () => { try { return localStorage.getItem('tfh_ai_key') || ''; } catch(e) { return ''; } };
+      const saveApiKey = (k) => { try { localStorage.setItem('tfh_ai_key', k.trim()); } catch(e) {} };
+
       const processAI = async () => {
         if (!aiInput.trim()) return;
+        const apiKey = getApiKey();
+        if (!apiKey) { setAiError('api_key_needed'); return; }
         setAiLoading(true);
         setAiError('');
         setAiResult(null);
         try {
           const today = _TODAY;
-          const memberList = data.members.map(function(m) { return m.id + ':' + m.name; }).join(', ');
-          const systemPrompt = 'You are a smart family hub assistant. Today\'s date is ' + today + ' (UK, Monday=start of week).\n'
-            + 'Parse the user\'s natural language input and return ONLY a JSON object (no markdown, no explanation).\n\n'
-            + 'Determine the type: "event", "task", "transaction", "note", or "unknown".\n\n'
-            + 'For "event": { type:"event", title, date (YYYY-MM-DD), time (HH:MM or ""), members:[], color:"#4F46E5" }\n'
-            + 'For "task": { type:"task", title, due (YYYY-MM-DD), category ("chores"|"kids"|"finance"|"other"), assignee: memberId or 1 }\n'
-            + 'For "transaction": { type:"transaction", desc, amount (negative=expense, positive=income), category ("groceries"|"dining"|"utilities"|"entertainment"|"kids"|"other"|"family pot"), date (YYYY-MM-DD), member: memberId or 1 }\n'
-            + 'For "note": { type:"note", title, body }\n\n'
-            + 'Family members: ' + memberList + '\n\n'
-            + 'For relative dates like "next Tuesday", "tomorrow", "this Friday" calculate from today (' + today + ').\n'
-            + 'If a member is mentioned by name use their id. Default to member id 1 if unclear.\n'
-            + 'Return ONLY valid JSON. No extra text.';
+          const todayObj = new Date(today);
+          const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+          const todayName = dayNames[todayObj.getDay()];
+          const memberList = data.members.map(function(m) { return m.id + ':' + m.name; }).join(', ') || '1:Family';
+          const systemPrompt = 'You are a family calendar assistant. Today is ' + todayName + ' ' + today + ' (UK date format, week starts Monday).\n\n'
+            + 'Parse the input and return ONLY a JSON object — no markdown fences, no explanation, no extra text.\n\n'
+            + 'CLASSIFICATION RULES:\n'
+            + '- Events: activities, appointments, outings, meals, watch parties, anything with a time/date (e.g. "movie night", "dentist", "dinner", "school play")\n'
+            + '- Tasks: things TO DO or reminders without a specific gathering time (e.g. "buy milk", "call the plumber", "pay bill")\n'
+            + '- Transactions: money spent or received (e.g. "spent £20", "paid for groceries", "got paid")\n'
+            + '- Notes: general information to remember\n\n'
+            + 'DATE RULES:\n'
+            + '- "tomorrow" = ' + new Date(todayObj.getTime() + 86400000).toISOString().slice(0,10) + '\n'
+            + '- "today" = ' + today + '\n'
+            + '- "next [day]" = the coming occurrence of that weekday\n'
+            + '- "by [time]" or "at [time]" both mean the event time\n'
+            + '- Convert 12h time to 24h: "6:00 p.m." = "18:00", "3pm" = "15:00", "6am" = "06:00"\n\n'
+            + 'TITLE RULES:\n'
+            + '- Clean up the title: capitalise properly, remove filler words like "by", "at", "on"\n'
+            + '- "movie Nights by 6:00 p.m. tomorrow" → title:"Movie Night", time:"18:00"\n'
+            + '- "dentist appointment next tuesday at 3pm" → title:"Dentist Appointment", time:"15:00"\n\n'
+            + 'OUTPUT FORMATS (use exactly one):\n'
+            + 'Event: {"type":"event","title":"...","date":"YYYY-MM-DD","time":"HH:MM","members":[],"color":"#4F46E5"}\n'
+            + 'Task:  {"type":"task","title":"...","due":"YYYY-MM-DD","category":"chores|kids|finance|other","assignee":memberId}\n'
+            + 'Transaction: {"type":"transaction","desc":"...","amount":-10.00,"category":"groceries|dining|utilities|entertainment|kids|other|family pot","date":"YYYY-MM-DD","member":memberId}\n'
+            + 'Note:  {"type":"note","title":"...","body":"..."}\n\n'
+            + 'Family members: ' + memberList + '\n'
+            + 'Use member id numbers. Default assignee/member to 1 if unclear.\n'
+            + 'If time is unknown use "". Return ONLY the JSON object.';
 
           const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
-              max_tokens: 500,
+              model: 'claude-haiku-4-5-20251001',
+              max_tokens: 300,
               system: systemPrompt,
-              messages: [{ role: 'user', content: aiInput }],
+              messages: [{ role: 'user', content: aiInput.trim() }],
             }),
           });
           const resData = await response.json();
+          if (resData.error) {
+            if (resData.error.type === 'authentication_error') {
+              setAiError('api_key_invalid');
+            } else {
+              setAiError('API error: ' + resData.error.message);
+            }
+            setAiLoading(false);
+            return;
+          }
           const rawText = (resData.content && resData.content[0] && resData.content[0].text) || '';
           const bt = String.fromCharCode(96);
           const clean = rawText.split(bt + 'json').join('').split(bt).join('').trim();
           const parsed = JSON.parse(clean);
+          if (!parsed.type) throw new Error('no type');
           setAiResult(parsed);
         } catch(e) {
-          setAiError('Could not understand that. Try rephrasing.');
+          setAiError('Could not parse that. Try: "Movie Night tomorrow at 6pm" or "Buy milk today"');
         }
         setAiLoading(false);
       };
@@ -18046,62 +18083,79 @@ function FamilyApp() {
                 , aiLoading ? '⏳ Understanding...' : '✨ Process'
               )
 
-              /* Error */
-              , aiError && React.createElement('div', { style: { background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#EF4444', fontWeight:600, marginBottom:12 } }, aiError)
+              /* API key needed */
+              , (aiError === 'api_key_needed' || aiError === 'api_key_invalid') && React.createElement('div', { style: { background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:12, padding:14, marginBottom:12 } },
+                React.createElement('div', { style: { fontSize:13, fontWeight:700, color:'#92400E', marginBottom:8 } },
+                  aiError === 'api_key_invalid' ? '🔑 API key invalid — please check and re-enter' : '🔑 Enter your Anthropic API key to use AI'
+                ),
+                React.createElement('div', { style: { fontSize:12, color:'#B45309', marginBottom:10 } }, 'Get a free key at console.anthropic.com — stored only on this device'),
+                React.createElement('div', { style: { display:'flex', gap:8 } },
+                  React.createElement('input', { type:'password', placeholder:'sk-ant-...', id:'tfh-api-key-input',
+                    style: { flex:1, padding:'8px 10px', fontSize:13, border:'1.5px solid #FED7AA', borderRadius:8, outline:'none', background:'#fff' } }),
+                  React.createElement('button', { onClick: () => {
+                    var inp = document.getElementById('tfh-api-key-input');
+                    if (inp && inp.value.trim().startsWith('sk-ant-')) { saveApiKey(inp.value.trim()); setAiError(''); }
+                    else { setAiError('api_key_invalid'); }
+                  }, style: { padding:'8px 14px', background:'#92400E', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, 'Save')
+                )
+              )
+
+              /* Other errors */
+              , aiError && aiError !== 'api_key_needed' && aiError !== 'api_key_invalid' && React.createElement('div', { style: { background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#EF4444', fontWeight:600, marginBottom:12 } }, aiError)
 
               /* Result preview */
-              , aiResult && React.createElement('div', { className:'ai-result-card', style: { border:`2px solid ${typeColors[aiResult.type] || COLORS.border}`, borderRadius:14, padding:16, marginBottom:14 } }
-                , React.createElement('div', { style: { display:'flex', alignItems:'center', gap:8, marginBottom:12 } }
-                  , React.createElement('span', { style: { background: typeColors[aiResult.type] || COLORS.primary, color:'#fff', borderRadius:8, padding:'3px 12px', fontSize:12, fontWeight:700 } }
-                    , typeLabels[aiResult.type] || aiResult.type
+              , aiResult && React.createElement('div', { className:'ai-result-card', style: { border:`2px solid ${typeColors[aiResult.type] || COLORS.border}`, borderRadius:14, padding:16, marginBottom:14 } },
+                React.createElement('div', { style: { display:'flex', alignItems:'center', gap:8, marginBottom:12 } },
+                  React.createElement('span', { style: { background: typeColors[aiResult.type] || COLORS.primary, color:'#fff', borderRadius:8, padding:'3px 12px', fontSize:12, fontWeight:700 } },
+                    typeLabels[aiResult.type] || aiResult.type
+                  ),
+                  React.createElement('span', { style: { fontSize:12, color:COLORS.muted } }, "Ready to add")
+                ),
+                React.createElement('div', { style: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 } },
+                  aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } },
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Title'),
+                    React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.title || aiResult.desc)
+                  ),
+                  aiResult.desc && !aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } },
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Description'),
+                    React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.desc)
+                  ),
+                  (aiResult.date || aiResult.due) && React.createElement('div', null,
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date'),
+                    React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, formatUKDate(aiResult.date || aiResult.due))
+                  ),
+                  aiResult.time && React.createElement('div', null,
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time'),
+                    React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.time)
+                  ),
+                  aiResult.amount !== undefined && React.createElement('div', null,
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Amount'),
+                    React.createElement('div', { style: { fontSize:13, fontWeight:700, color: aiResult.amount < 0 ? COLORS.danger : COLORS.success, marginTop:2 } }, aiResult.amount < 0 ? '-' : '+', '£', Math.abs(aiResult.amount).toFixed(2))
+                  ),
+                  aiResult.category && React.createElement('div', null,
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category'),
+                    React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.category)
+                  ),
+                  aiResult.body && React.createElement('div', { style: { gridColumn:'1/-1' } },
+                    React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Note'),
+                    React.createElement('div', { style: { fontSize:13, color:COLORS.text, marginTop:2, lineHeight:1.5 } }, aiResult.body)
                   )
-                  , React.createElement('span', { style: { fontSize:12, color:COLORS.muted } }, "Ready to add")
-                )
-                , React.createElement('div', { style: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 } }
-                  , aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } }
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Title')
-                    , React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.title || aiResult.desc)
-                  )
-                  , aiResult.desc && !aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } }
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Description')
-                    , React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.desc)
-                  )
-                  , (aiResult.date || aiResult.due) && React.createElement('div', null
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
-                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, formatUKDate(aiResult.date || aiResult.due))
-                  )
-                  , aiResult.time && React.createElement('div', null
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time')
-                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.time)
-                  )
-                  , aiResult.amount !== undefined && React.createElement('div', null
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Amount')
-                    , React.createElement('div', { style: { fontSize:13, fontWeight:700, color: aiResult.amount < 0 ? COLORS.danger : COLORS.success, marginTop:2 } }, aiResult.amount < 0 ? '-' : '+', '£', Math.abs(aiResult.amount).toFixed(2))
-                  )
-                  , aiResult.category && React.createElement('div', null
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
-                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.category)
-                  )
-                  , aiResult.body && React.createElement('div', { style: { gridColumn:'1/-1' } }
-                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Note')
-                    , React.createElement('div', { style: { fontSize:13, color:COLORS.text, marginTop:2, lineHeight:1.5 } }, aiResult.body)
-                  )
-                )
-                , React.createElement('div', { style: { display:'flex', gap:8, marginTop:14 } }
-                  , React.createElement('button', { onClick: confirmAI, style: { flex:1, padding:'10px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' } }, "✅ Add Now")
-                  , React.createElement('button', { onClick: () => { setAiResult(null); setAiInput(''); }, style: { padding:'10px 16px', background:COLORS.soft, color:COLORS.primary, border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer' } }, "✕ Redo")
+                ),
+                React.createElement('div', { style: { display:'flex', gap:8, marginTop:14 } },
+                  React.createElement('button', { onClick: confirmAI, style: { flex:1, padding:'10px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' } }, "✅ Add Now"),
+                  React.createElement('button', { onClick: () => { setAiResult(null); setAiInput(''); }, style: { padding:'10px 16px', background:COLORS.soft, color:COLORS.primary, border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer' } }, "✕ Redo")
                 )
               )
 
               /* Examples */
-              , !aiResult && !aiLoading && React.createElement('div', { style: { marginTop:4 } }
-                , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' } }, "Try saying...")
-                , ['Dentist appointment next Tuesday at 3pm', 'Pay council tax £180 today', 'Remind me to buy milk tomorrow', 'School play Friday 6:30pm'].map(ex =>
-                  React.createElement('button', { key:ex, onClick: () => setAiInput(ex),
-                    style: { display:'block', width:'100%', textAlign:'left', padding:'8px 12px', marginBottom:6, background:COLORS.soft, border:'none', borderRadius:8, fontSize:13, color:COLORS.primary, cursor:'pointer', fontWeight:500 } }
-                    , ex
-                  )
-                )
+              , !aiResult && !aiLoading && aiError !== 'api_key_needed' && aiError !== 'api_key_invalid' && React.createElement('div', { style: { marginTop:4 } },
+                React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' } }, "Try saying..."),
+                ['Movie night tomorrow at 6pm', 'Dentist next Tuesday at 3pm', 'Paid £45 for groceries today', 'School play Friday 6:30pm', 'Remind me to buy milk tomorrow'].map(function(ex) {
+                  return React.createElement('button', { key:ex, onClick: function() { setAiInput(ex); },
+                    style: { display:'block', width:'100%', textAlign:'left', padding:'8px 12px', marginBottom:6, background:COLORS.soft, border:'none', borderRadius:8, fontSize:13, color:COLORS.primary, cursor:'pointer', fontWeight:500 } },
+                    ex
+                  );
+                })
               )
             )
           )
