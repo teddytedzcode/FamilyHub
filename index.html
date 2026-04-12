@@ -17205,8 +17205,8 @@ exports.version = "19.2.4";
   (function() {
     function launch() {
       console.log('[TFH] launch() called, window.supabase type:', typeof window.supabase);
+      var _optionalChain = function(ops) { var lastAccessLHS; var value = ops[0]; var i = 1; while (i < ops.length) { var op = ops[i]; var fn = ops[i + 1]; i += 2; if ((op === 'optionalAccess' || op === 'optionalCall') && value == null) { return undefined; } if (op === 'access' || op === 'optionalAccess') { lastAccessLHS = value; value = fn(value); } else if (op === 'call' || op === 'optionalCall') { value = fn(function() { var args = Array.prototype.slice.call(arguments); return value.call(lastAccessLHS, ...args); }); lastAccessLHS = undefined; } } return value; };
       try {
- function _optionalChain(ops) { let lastAccessLHS = undefined; let value = ops[0]; let i = 1; while (i < ops.length) { const op = ops[i]; const fn = ops[i + 1]; i += 2; if ((op === 'optionalAccess' || op === 'optionalCall') && value == null) { return undefined; } if (op === 'access' || op === 'optionalAccess') { lastAccessLHS = value; value = fn(value); } else if (op === 'call' || op === 'optionalCall') { value = fn((...args) => value.call(lastAccessLHS, ...args)); lastAccessLHS = undefined; } } return value; }
     const { useState, useEffect, useRef, useCallback } = React;
 
     // ── SUPABASE CONFIG ──────────────────────────────────────────────
@@ -17378,26 +17378,8 @@ exports.version = "19.2.4";
     }
 
     const initialState = {
-      members: [
-        { id: 1, name: "Mom", color: "#E8A020", emoji: "👩" },
-        { id: 2, name: "Dad", color: "#2D5016", emoji: "👨" },
-        { id: 3, name: "Kid 1", color: "#6BA3E0", emoji: "🧒" },
-      ],
-      tasks: [],
-      events: [],
-      transactions: [],
-      recurring: [
-        { id: 2, desc: "Broadband & SIM", amount: 65, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "📶" },
-        { id: 3, desc: "Streaming", amount: 10, category: "entertainment", dayOfMonth: 1, member: 1, active: true, icon: "📺" },
-        { id: 4, desc: "Electricity & Gas", amount: 100, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "⚡" },
-        { id: 5, desc: "Council Tax", amount: 180, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "🏛️" },
-        { id: 6, desc: "Water", amount: 23, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "💧" },
-        { id: 7, desc: "Estate Charge", amount: 17, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "🏘️" },
-        { id: 8, desc: "Life Insurance", amount: 17, category: "utilities", dayOfMonth: 1, member: 2, active: true, icon: "🛡️" },
-      ],
-      recurringApplied: [],
-      notes: [],
-      routines: [],
+      members: [], tasks: [], events: [], transactions: [],
+      recurring: [], recurringApplied: [], notes: [], routines: [],
     };
 
 
@@ -17425,6 +17407,14 @@ exports.version = "19.2.4";
     // ══════════════════════════════════════════════════════════════
     function getUKToday() {
       return new Date().toLocaleDateString('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-');
+    }
+    function formatUKDate(str) {
+      if (!str) return '';
+      try {
+        var parts = str.split('-');
+        return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+          .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      } catch(e) { return str; }
     }
     var _TODAY = getUKToday();
     var DEFAULT_CODES = [
@@ -17607,19 +17597,26 @@ function FamilyApp() {
       useEffect(() => {
         async function load() {
           setSyncStatus("loading");
-
-          // Always try Supabase first — it is the source of truth
+          // Show cache immediately — never block on network
+          const cached = loadFromCache();
+          if (cached && cached.members) {
+            setData(cached);
+            setSyncStatus("offline");
+          }
+          // Try Supabase with 6s timeout
           if (ONLINE_MODE()) {
             try {
-              const rows = await dbLoad();
-
+              const rows = await Promise.race([
+                dbLoad(),
+                new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 6000); })
+              ]);
               if (rows && rows.members) {
-                // Supabase responded — check if it has real data
-                const hasMembers = rows.members.length > 0;
-
-                if (hasMembers) {
-                  // Load from DB — this is the real data
+                if (rows.members.length > 0) {
                   const recurringApplied = await dbLoadAppState('recurringApplied') || [];
+                  const remoteBudget = await dbLoadAppState('monthlyBudget');
+                  if (remoteBudget && Number(remoteBudget) > 0) {
+                    try { localStorage.setItem('tfh_budget', String(remoteBudget)); } catch(e) {}
+                  }
                   const loaded = {
                     members: rowsToArray(rows.members),
                     tasks: rowsToArray(rows.tasks || []),
@@ -17628,44 +17625,25 @@ function FamilyApp() {
                     recurring: rowsToArray(rows.recurring || []),
                     notes: rowsToArray(rows.notes || []),
                     routines: rowsToArray(rows.routines || []),
-                    recurringApplied,
+                    recurringApplied: recurringApplied,
                   };
                   setData(loaded);
                   saveToCache(loaded);
                   setSyncStatus("ok");
                   return;
                 } else {
-                  // DB is empty — check cache before seeding defaults
-                  const cached = loadFromCache();
                   if (cached && cached.members && cached.members.length > 0) {
-                    // Cache has real user data — restore it to DB and use it
-                    console.log('[TFH] DB empty but cache found — restoring from cache');
                     setData(cached);
-                    // Restore cache back to Supabase in background
-                    Object.entries(cached).forEach(([key, val]) => {
-                      if (key === 'recurringApplied') {
-                        dbSaveAppState('recurringApplied', val);
-                      } else if (Array.isArray(val) && val.length > 0) {
-                        dbSave(key, val);
-                      }
+                    Object.entries(cached).forEach(function(entry) {
+                      var key = entry[0]; var val = entry[1];
+                      if (key === 'recurringApplied') { dbSaveAppState('recurringApplied', val); }
+                      else if (Array.isArray(val) && val.length > 0) { dbSave(key, val); }
                     });
                     setSyncStatus("ok");
                     return;
                   }
-                  // Truly first run — seed blank state
-                  console.log('[TFH] First run — seeding blank state');
-                  const blank = {
-                    members: initialState.members,
-                    tasks: [], events: [], transactions: [],
-                    recurring: initialState.recurring,
-                    notes: [], routines: [],
-                    recurringApplied: [],
-                  };
-                  await Promise.all([
-                    dbSave('members', blank.members),
-                    dbSave('recurring', blank.recurring),
-                    dbSaveAppState('recurringApplied', []),
-                  ]);
+                  const blank = { members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] };
+                  await dbSaveAppState('recurringApplied', []);
                   setData(blank);
                   saveToCache(blank);
                   setSyncStatus("ok");
@@ -17673,20 +17651,13 @@ function FamilyApp() {
                 }
               }
             } catch(e) {
-              console.error('[TFH] Supabase load failed:', e);
+              console.warn('[TFH] Supabase load failed:', e.message);
             }
           }
-
-          // Supabase unavailable — fall back to cache
-          const cached = loadFromCache();
-          if (cached) {
-            console.log('[TFH] Offline — using cache');
-            setData(cached);
-            setSyncStatus("offline");
-          } else {
-            setData({ ...initialState, tasks: [], events: [], transactions: [], notes: [], routines: [], recurringApplied: [] });
-            setSyncStatus("offline");
+          if (!cached) {
+            setData({ members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] });
           }
+          setSyncStatus("offline");
         }
         load();
         registerPush();
@@ -18097,7 +18068,7 @@ function FamilyApp() {
                   )
                   , (aiResult.date || aiResult.due) && React.createElement('div', null
                     , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
-                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.date || aiResult.due)
+                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, formatUKDate(aiResult.date || aiResult.due))
                   )
                   , aiResult.time && React.createElement('div', null
                     , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time')
@@ -18135,9 +18106,7 @@ function FamilyApp() {
             )
           )
         )
-      )
-    )
-  );
+      );
   }
 
 function Dashboard({ data, upcomingEvents, pendingTasks, totalIncome, totalExpenses, balance, setModal }) {
@@ -18247,7 +18216,7 @@ function Dashboard({ data, upcomingEvents, pendingTasks, totalIncome, totalExpen
               , React.createElement('div', { style: { width: 28, height: 28, borderRadius: "50%", background: upcoming.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 },}, upcoming.icon)
               , React.createElement('div', { style: { flex: 1 },}
                 , React.createElement('div', { style: { fontSize: 14, fontWeight: 600 },}, upcoming.title, " " , React.createElement('span', { style: { fontSize: 11, color: COLORS.muted, fontWeight: 400 },}, "(", upcoming.frequency, ")"))
-                , React.createElement('div', { style: { fontSize: 12, color: isOverdue ? COLORS.danger : COLORS.muted },}, isOverdue ? "⚠️ Overdue" : `Due ${upcoming.nextDate}`, " · "  , upcoming.child)
+                , React.createElement('div', { style: { fontSize: 12, color: isOverdue ? COLORS.danger : COLORS.muted },}, isOverdue ? "⚠️ Overdue" : `Due ${formatUKDate(upcoming.nextDate)}`, " · "  , upcoming.child)
               )
               , React.createElement('span', { style: { fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: upcoming.color + "22", color: upcoming.color },}, "Routine")
             )
@@ -18287,7 +18256,7 @@ function TaskRowSimple({ task, data }) {
       )
       , React.createElement('div', { style: { flex: 1 },}
         , React.createElement('div', { style: { fontSize: 14, fontWeight: 600, color: COLORS.text },}, task.title)
-        , React.createElement('div', { style: { fontSize: 12, color: isOverdue ? COLORS.danger : COLORS.muted, marginTop: 1 },}, isOverdue ? "⚠️ Overdue · " : "Due · ", task.due)
+        , React.createElement('div', { style: { fontSize: 12, color: isOverdue ? COLORS.danger : COLORS.muted, marginTop: 1 },}, isOverdue ? "⚠️ Overdue · " : "Due · ", formatUKDate(task.due))
       )
       , member && React.createElement('span', { style: { fontSize: 18 },}, member.emoji)
     )
@@ -18361,7 +18330,7 @@ function TxRow({ tx, data, onEdit, onDelete }) {
         )
         , React.createElement('div', { style:{ flex:1, minWidth:0 } }
           , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color:COLORS.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, tx.desc)
-          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, tx.date, ' · ', React.createElement('span', { className:'pill', style:{ background:COLORS.soft, color:COLORS.primary } }, tx.category))
+          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, formatUKDate(tx.date), ' · ', React.createElement('span', { className:'pill', style:{ background:COLORS.soft, color:COLORS.primary } }, tx.category))
         )
         , React.createElement('div', { style:{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2 } }
           , React.createElement('div', { style:{ fontSize:15, fontWeight:700, color: tx.amount < 0 ? COLORS.danger : COLORS.success } }
@@ -18375,7 +18344,7 @@ function TxRow({ tx, data, onEdit, onDelete }) {
         , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
-            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, tx.date)
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, formatUKDate(tx.date))
           )
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
@@ -18427,7 +18396,7 @@ function FullTaskRow({ task, data, toggle, del, onEdit }) {
         , React.createElement('div', { style:{ flex:1, minWidth:0 } }
           , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color: task.done ? COLORS.muted : COLORS.text, textDecoration: task.done ? 'line-through' : 'none', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, task.title)
           , React.createElement('div', { style:{ fontSize:12, color: isOverdue ? COLORS.danger : COLORS.muted, marginTop:2 } }
-            , isOverdue ? '⚠️ Overdue · ' : 'Due · ', task.due
+            , isOverdue ? '⚠️ Overdue · ' : 'Due · ', formatUKDate(task.due)
           )
         )
         , member && React.createElement('div', { style:{ display:'flex', flexDirection:'column', alignItems:'center', gap:1, flexShrink:0 } }
@@ -18440,7 +18409,7 @@ function FullTaskRow({ task, data, toggle, del, onEdit }) {
         , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Due Date')
-            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color: isOverdue ? COLORS.danger : COLORS.text, marginTop:2 } }, task.due || '—')
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color: isOverdue ? COLORS.danger : COLORS.text, marginTop:2 } }, formatUKDate(task.due) || '—')
           )
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
@@ -18481,7 +18450,7 @@ function EventRow({ ev, data, onEdit, onDelete }) {
         )
         , React.createElement('div', { style:{ flex:1, minWidth:0 } }
           , React.createElement('div', { style:{ fontSize:14, fontWeight:600, color: isPast ? COLORS.muted : COLORS.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, ev.title)
-          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, ev.date, ev.time ? ` · ${ev.time}` : '')
+          , React.createElement('div', { style:{ fontSize:12, color:COLORS.muted, marginTop:2 } }, formatUKDate(ev.date), ev.time ? ` · ${ev.time}` : '')
         )
         , React.createElement('div', { style:{ display:'flex', gap:-4, flexShrink:0 } }
           , members.slice(0,3).map(m => React.createElement('span', { key:m.id, style:{ fontSize:16 } }, m.emoji))
@@ -18492,7 +18461,7 @@ function EventRow({ ev, data, onEdit, onDelete }) {
         , React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 } }
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
-            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, ev.date)
+            , React.createElement('div', { style:{ fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, formatUKDate(ev.date))
           )
           , React.createElement('div', null
             , React.createElement('div', { style:{ fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time')
@@ -18727,7 +18696,7 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
                           onKeyDown: e => {
                             if (e.key === 'Enter') {
                               const v = Number(budgetInput);
-                              if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} }
+                              if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v); }
                               setEditingBudget(false);
                             }
                             if (e.key === 'Escape') setEditingBudget(false);
@@ -18735,7 +18704,7 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
                           style: { width: 90, padding: "4px 8px", fontSize: 14, fontWeight: 700, border: `1.5px solid ${COLORS.primary}`, borderRadius: 8, outline: "none", textAlign: "right" },})
                       , React.createElement('button', { onClick: () => {
                           const v = Number(budgetInput);
-                          if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} }
+                          if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v); }
                           setEditingBudget(false);
                         }, style: { background: COLORS.primary, color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },}, "Save")
                       , React.createElement('button', { onClick: () => setEditingBudget(false), style: { background: COLORS.soft, color: COLORS.muted, border: "none", borderRadius: 8, padding: "4px 8px", fontSize: 12, cursor: "pointer" },}, "✕")
@@ -19084,7 +19053,7 @@ function ChildRoutines({ data, setData }) {
                 , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" },}
                   , React.createElement('span', null, r.child)
                   , React.createElement('span', { style: { background: r.color + "22", color: r.color, fontWeight: 700, padding: "1px 7px", borderRadius: 999, fontSize: 11 },}, FREQ_LABELS[r.frequency])
-                  , React.createElement('span', { style: { color: isOverdue ? COLORS.danger : COLORS.muted },}, isOverdue ? "⚠️ Overdue" : `Next: ${nextDate}`)
+                  , React.createElement('span', { style: { color: isOverdue ? COLORS.danger : COLORS.muted },}, isOverdue ? "⚠️ Overdue" : `Next: ${formatUKDate(nextDate)}`)
                 )
                 /* Progress bar */
                 , total > 0 && (
