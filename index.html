@@ -17850,6 +17850,106 @@ function FamilyApp() {
         offline: { background:"#6B6B6B" },
       }[syncStatus] || { background:"#6B6B6B" };
 
+      const [showAI, setShowAI] = useState(false);
+      const [aiInput, setAiInput] = useState('');
+      const [aiLoading, setAiLoading] = useState(false);
+      const [aiResult, setAiResult] = useState(null);
+      const [aiError, setAiError] = useState('');
+      const [isListening, setIsListening] = useState(false);
+      const recognitionRef = useRef(null);
+
+      const startVoice = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { setAiError('Voice not supported on this browser. Try Chrome or Safari.'); return; }
+        const rec = new SpeechRecognition();
+        rec.lang = 'en-GB';
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.onstart = () => setIsListening(true);
+        rec.onresult = (e) => {
+          const text = e.results[0][0].transcript;
+          setAiInput(text);
+          setIsListening(false);
+        };
+        rec.onerror = () => { setIsListening(false); setAiError('Could not hear you. Try again.'); };
+        rec.onend = () => setIsListening(false);
+        recognitionRef.current = rec;
+        rec.start();
+      };
+
+      const stopVoice = () => {
+        if (recognitionRef.current) recognitionRef.current.stop();
+        setIsListening(false);
+      };
+
+      const processAI = async () => {
+        if (!aiInput.trim()) return;
+        setAiLoading(true);
+        setAiError('');
+        setAiResult(null);
+        try {
+          const today = _TODAY;
+          const memberList = data.members.map(m => `${m.id}:${m.name}`).join(', ');
+          const systemPrompt = `You are a smart family hub assistant. Today's date is ${today} (UK, Monday=start of week).
+Parse the user's natural language input and return ONLY a JSON object (no markdown, no explanation).
+
+Determine the type: "event", "task", "transaction", "note", or "unknown".
+
+For "event": { type:"event", title, date (YYYY-MM-DD), time (HH:MM or ""), members:[], color:"#4F46E5" }
+For "task": { type:"task", title, due (YYYY-MM-DD), category ("chores"|"kids"|"finance"|"other"), assignee: memberId or 1 }
+For "transaction": { type:"transaction", desc, amount (negative=expense, positive=income), category ("groceries"|"dining"|"utilities"|"entertainment"|"kids"|"other"|"family pot"), date (YYYY-MM-DD), member: memberId or 1 }
+For "note": { type:"note", title, body }
+
+Family members: ${memberList}
+
+For relative dates like "next Tuesday", "tomorrow", "this Friday" — calculate from today (${today}).
+If a member is mentioned by name, use their id. Default to member id 1 if unclear.
+Return ONLY valid JSON. No extra text.`;
+
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 500,
+              system: systemPrompt,
+              messages: [{ role: 'user', content: aiInput }],
+            }),
+          });
+          const resData = await response.json();
+          const text = resData.content?.[0]?.text || '';
+          const clean = text.replace(/```json|```/g, '').trim();
+          const parsed = JSON.parse(clean);
+          setAiResult(parsed);
+        } catch(e) {
+          setAiError('Could not understand that. Try rephrasing.');
+        }
+        setAiLoading(false);
+      };
+
+      const confirmAI = () => {
+        if (!aiResult) return;
+        const r = aiResult;
+        if (r.type === 'event') {
+          setDataAndSync(d => ({ ...d, events: [...d.events, { ...r, id: String(Date.now()), members: r.members && r.members.length ? r.members : [data.members[0]?.id || 1] }] }), 'events');
+        } else if (r.type === 'task') {
+          setDataAndSync(d => ({ ...d, tasks: [...d.tasks, { ...r, id: String(Date.now()), done: false }] }), 'tasks');
+        } else if (r.type === 'transaction') {
+          setDataAndSync(d => ({ ...d, transactions: [...d.transactions, { ...r, id: String(Date.now()) }] }), 'transactions');
+        } else if (r.type === 'note') {
+          setDataAndSync(d => ({ ...d, notes: [{ ...r, id: String(Date.now()), createdAt: new Date().toISOString(), editedAt: null }, ...d.notes] }), 'notes');
+        }
+        setShowAI(false);
+        setAiInput('');
+        setAiResult(null);
+        setAiError('');
+      };
+
+      const closeAI = () => { setShowAI(false); setAiInput(''); setAiResult(null); setAiError(''); if (isListening) stopVoice(); };
+
+      const typeLabels = { event:'📅 Event', task:'✅ Task', transaction:'💳 Transaction', note:'📝 Note' };
+      const typeColors = { event:'#4F46E5', task:'#10B981', transaction:'#EF4444', note:'#F59E0B' };
+
       return (
         React.createElement('div', { style: { fontFamily:FONT.body, background:COLORS.bg, minHeight:"100vh", color:COLORS.text },}
           , React.createElement('style', null, `
@@ -17877,9 +17977,15 @@ function FamilyApp() {
             ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-thumb { background:#C7D2FE;border-radius:99px; }
             @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
             @keyframes slideDown { from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)} }
+            @keyframes micPulse { 0%{box-shadow:0 0 0 0 rgba(79,70,229,0.5)} 70%{box-shadow:0 0 0 14px rgba(79,70,229,0)} 100%{box-shadow:0 0 0 0 rgba(79,70,229,0)} }
+            @keyframes fadeUp { from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)} }
             .expand-panel { animation:slideDown 0.2s ease; }
             .row-clickable { cursor:pointer; transition:background 0.15s; }
             .row-clickable:hover { background:#F8F7FF !important; }
+            .ai-fab { position:fixed;bottom:24px;right:20px;z-index:200;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4F46E5,#7C3AED);border:none;color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(79,70,229,0.45);transition:transform 0.2s; }
+            .ai-fab:hover { transform:scale(1.1); }
+            .ai-listening { animation:micPulse 1.2s infinite; }
+            .ai-result-card { animation:fadeUp 0.25s ease; }
           `)
 
           , React.createElement('header', { style: { background:"linear-gradient(135deg, #1A0533 0%, #0D0120 100%)", padding:"18px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 4px 24px rgba(13,1,32,0.5)" },}
@@ -17929,6 +18035,106 @@ function FamilyApp() {
           , modal==="add-transaction" && React.createElement(AddTransactionModal, { data: data, setData: setDataAndSync, close: () => setModal(null),} )
           , modal==="add-member" && React.createElement(AddMemberModal, { data: data, setData: setDataAndSync, close: () => setModal(null),} )
           , modal==="add-recurring" && React.createElement(AddRecurringModal, { data: data, setData: setDataAndSync, close: () => setModal(null),} )
+
+          /* ── FLOATING AI BUTTON ── */
+          , React.createElement('button', { className: `ai-fab${isListening ? ' ai-listening' : ''}`, onClick: () => setShowAI(true), title: "Quick Add with voice or text" }, "🎤")
+
+          /* ── AI QUICK ADD MODAL ── */
+          , showAI && React.createElement('div', { className: "overlay", onClick: e => e.target === e.currentTarget && closeAI() }
+            , React.createElement('div', { style: { background:'#fff', borderRadius:24, padding:28, width:'92%', maxWidth:460, boxShadow:'0 24px 80px rgba(79,70,229,0.2)' } }
+
+              /* Header */
+              , React.createElement('div', { style: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 } }
+                , React.createElement('div', null
+                  , React.createElement('div', { style: { fontSize:18, fontWeight:800, color:COLORS.text } }, "✨ Quick Add")
+                  , React.createElement('div', { style: { fontSize:12, color:COLORS.muted, marginTop:2 } }, "Speak or type — I'll add it to the right place")
+                )
+                , React.createElement('button', { onClick: closeAI, style: { background:'none', border:'none', fontSize:22, color:COLORS.muted, cursor:'pointer' } }, "✕")
+              )
+
+              /* Voice + Text input row */
+              , React.createElement('div', { style: { display:'flex', gap:8, alignItems:'center', marginBottom:12 } }
+                , React.createElement('div', { style: { flex:1, position:'relative' } }
+                  , React.createElement('input', { type:'text', value: aiInput,
+                      placeholder: isListening ? '🎤 Listening...' : 'e.g. "Dentist appointment next Tuesday 3pm"',
+                      onChange: e => setAiInput(e.target.value),
+                      onKeyDown: e => e.key === 'Enter' && !aiLoading && processAI(),
+                      style: { width:'100%', padding:'12px 14px', fontSize:14, border:`2px solid ${COLORS.border}`, borderRadius:12, outline:'none', background: isListening ? '#F0F4FF' : '#F8FAFC', transition:'all 0.2s' } })
+                )
+                , React.createElement('button', {
+                    onClick: isListening ? stopVoice : startVoice,
+                    className: isListening ? 'ai-listening' : '',
+                    title: isListening ? 'Stop listening' : 'Start voice input',
+                    style: { width:46, height:46, borderRadius:'50%', border:'none', background: isListening ? '#EF4444' : 'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', fontSize:20, cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' } }
+                  , isListening ? '⏹' : '🎤'
+                )
+              )
+
+              /* Process button */
+              , React.createElement('button', { onClick: processAI, disabled: aiLoading || !aiInput.trim(),
+                  style: { width:'100%', padding:'12px 0', background: aiLoading || !aiInput.trim() ? '#C7D2FE' : 'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor: aiLoading || !aiInput.trim() ? 'default' : 'pointer', marginBottom:14, transition:'all 0.2s' } }
+                , aiLoading ? '⏳ Understanding...' : '✨ Process'
+              )
+
+              /* Error */
+              , aiError && React.createElement('div', { style: { background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#EF4444', fontWeight:600, marginBottom:12 } }, aiError)
+
+              /* Result preview */
+              , aiResult && React.createElement('div', { className:'ai-result-card', style: { border:`2px solid ${typeColors[aiResult.type] || COLORS.border}`, borderRadius:14, padding:16, marginBottom:14 } }
+                , React.createElement('div', { style: { display:'flex', alignItems:'center', gap:8, marginBottom:12 } }
+                  , React.createElement('span', { style: { background: typeColors[aiResult.type] || COLORS.primary, color:'#fff', borderRadius:8, padding:'3px 12px', fontSize:12, fontWeight:700 } }
+                    , typeLabels[aiResult.type] || aiResult.type
+                  )
+                  , React.createElement('span', { style: { fontSize:12, color:COLORS.muted } }, "Ready to add")
+                )
+                , React.createElement('div', { style: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 } }
+                  , aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } }
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Title')
+                    , React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.title || aiResult.desc)
+                  )
+                  , aiResult.desc && !aiResult.title && React.createElement('div', { style: { gridColumn:'1/-1' } }
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Description')
+                    , React.createElement('div', { style: { fontSize:15, fontWeight:700, color:COLORS.text, marginTop:2 } }, aiResult.desc)
+                  )
+                  , (aiResult.date || aiResult.due) && React.createElement('div', null
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Date')
+                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.date || aiResult.due)
+                  )
+                  , aiResult.time && React.createElement('div', null
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Time')
+                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.time)
+                  )
+                  , aiResult.amount !== undefined && React.createElement('div', null
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Amount')
+                    , React.createElement('div', { style: { fontSize:13, fontWeight:700, color: aiResult.amount < 0 ? COLORS.danger : COLORS.success, marginTop:2 } }, aiResult.amount < 0 ? '-' : '+', '£', Math.abs(aiResult.amount).toFixed(2))
+                  )
+                  , aiResult.category && React.createElement('div', null
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Category')
+                    , React.createElement('div', { style: { fontSize:13, fontWeight:600, color:COLORS.text, marginTop:2 } }, aiResult.category)
+                  )
+                  , aiResult.body && React.createElement('div', { style: { gridColumn:'1/-1' } }
+                    , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px' } }, 'Note')
+                    , React.createElement('div', { style: { fontSize:13, color:COLORS.text, marginTop:2, lineHeight:1.5 } }, aiResult.body)
+                  )
+                )
+                , React.createElement('div', { style: { display:'flex', gap:8, marginTop:14 } }
+                  , React.createElement('button', { onClick: confirmAI, style: { flex:1, padding:'10px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' } }, "✅ Add Now")
+                  , React.createElement('button', { onClick: () => { setAiResult(null); setAiInput(''); }, style: { padding:'10px 16px', background:COLORS.soft, color:COLORS.primary, border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer' } }, "✕ Redo")
+                )
+              )
+
+              /* Examples */
+              , !aiResult && !aiLoading && React.createElement('div', { style: { marginTop:4 } }
+                , React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' } }, "Try saying...")
+                , ['Dentist appointment next Tuesday at 3pm', 'Pay council tax £180 today', 'Remind me to buy milk tomorrow', 'School play Friday 6:30pm'].map(ex =>
+                  React.createElement('button', { key:ex, onClick: () => setAiInput(ex),
+                    style: { display:'block', width:'100%', textAlign:'left', padding:'8px 12px', marginBottom:6, background:COLORS.soft, border:'none', borderRadius:8, fontSize:13, color:COLORS.primary, cursor:'pointer', fontWeight:500 } }
+                    , ex
+                  )
+                )
+              )
+            )
+          )
         )
       );
     }
