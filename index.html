@@ -17209,376 +17209,209 @@ exports.version = "19.2.4";
       try {
     const { useState, useEffect, useRef, useCallback } = React;
 
-    // ── SUPABASE CONFIG ──────────────────────────────────────────────
-    // ── SUPABASE SHIM - works offline too ────────────────────────
+    // ── SUPABASE CONFIG ─────────────────────────────────────────────
     const SUPABASE_URL = 'https://bkclhplehvncpjoqvakv.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrY2xocGxlaHZuY3Bqb3F2YWt2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MTQxMTMsImV4cCI6MjA5MDM5MDExM30.dRxsQJee_tgl-fN562aSpAf2hngSq_5HoZcuRRe-XG4';
-    
-    // ONLINE_MODE is a function so it's checked at call time, not parse time
-    function ONLINE_MODE() {
-      var result = typeof window.supabase !== 'undefined' && window.supabase !== null && typeof window.supabase.createClient === 'function';
-      return result;
-    }
-    // supabase client lazily created on first use
-    var _supabaseClient = null;
-    function getSupabase() {
-      if (!_supabaseClient && ONLINE_MODE()) {
-        _supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      }
-      return _supabaseClient;
-    }
-    var supabase = {
-      from: function(t) { var c = getSupabase(); return c ? c.from(t) : { select: function(){ return Promise.resolve({data:[],error:{message:'offline'}}); }, upsert: function(){ return Promise.resolve({error:null}); }, delete: function(){ return { eq: function(){ return Promise.resolve({error:null}); } }; }, eq: function(){ return { single: function(){ return Promise.resolve({data:null,error:{code:'PGRST116'}}); } }; } }; },
-      channel: function(n) { var c = getSupabase(); return c ? c.channel(n) : { on: function(){ return this; }, subscribe: function(){ return this; } }; },
-      removeChannel: function(ch) { var c = getSupabase(); if(c) c.removeChannel(ch); },
-    };
+    // Edge Function URL for AI (no key on client)
+    const AI_FUNCTION_URL = SUPABASE_URL + '/functions/v1/ai-parse';
 
-    // Tables we sync — each maps to a Supabase table
-    const TABLES = ['members','tasks','events','transactions','recurring','notes','routines','app_state'];
+    var _sb = null;
+    function getSupabase() {
+      if (!_sb && typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+        _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      }
+      return _sb;
+    }
+    function ONLINE_MODE() { return !!getSupabase(); }
 
     // ── DB HELPERS ───────────────────────────────────────────────────
-    async function dbLoad() {
-      if (!ONLINE_MODE()) return null;
+    function rowsToArray(rows) { return (rows || []).map(function(r){ return r.data; }).filter(Boolean); }
+
+    async function getFamilyId() {
+      var sb = getSupabase(); if (!sb) return null;
+      var user = (await sb.auth.getUser()).data.user;
+      if (!user) return null;
+      var res = await sb.from('profiles').select('family_id').eq('id', user.id).single();
+      return res.data && res.data.family_id;
+    }
+
+    async function dbLoad(familyId) {
+      var sb = getSupabase(); if (!sb || !familyId) return null;
       try {
-        const results = {};
-        await Promise.all(TABLES.map(async (t) => {
-          const { data, error } = await supabase.from(t).select('*');
-          if (!error && data) results[t] = data;
+        var TABLES = ['members','tasks','events','transactions','recurring','notes','routines'];
+        var results = {};
+        await Promise.all(TABLES.map(async function(t) {
+          var res = await sb.from(t).select('*').eq('family_id', familyId);
+          if (!res.error) results[t] = res.data || [];
         }));
-        // If we got no tables back at all, treat as fetch failure
-        if (Object.keys(results).length === 0) return null;
         return results;
-      } catch(e) {
-        console.error('[TFH] dbLoad failed:', e);
-        return null;
-      }
+      } catch(e) { console.error('[TFH] dbLoad failed:', e); return null; }
     }
 
-    function rowsToArray(rows) {
-      return (rows || []).map(r => r.data).filter(Boolean);
-    }
-
-    async function dbSave(table, items) {
-      if (!ONLINE_MODE()) return;
+    async function dbSave(table, items, familyId) {
+      var sb = getSupabase(); if (!sb || !familyId) return;
       try {
-        const rows = Array.isArray(items)
-          ? items.map(item => ({ id: String(item.id), data: item }))
-          : [{ id: String(items.key || 'state'), data: items }];
-        const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
-        if (error) console.error('Save error', table, JSON.stringify(error));
-      } catch(e) {
-        console.warn('Save skipped (environment error):', table, e && e.message);
-      }
+        var rows = Array.isArray(items)
+          ? items.map(function(item){ return { id: String(item.id), family_id: familyId, data: item }; })
+          : [{ id: String(items.key || 'state'), family_id: familyId, data: items }];
+        var res = await sb.from(table).upsert(rows, { onConflict: 'id,family_id' });
+        if (res.error) console.error('Save error', table, res.error.message);
+      } catch(e) { console.warn('dbSave skipped:', e && e.message); }
     }
 
-    async function dbDelete(table, id) {
-      if (!ONLINE_MODE()) return;
+    async function dbDelete(table, id, familyId) {
+      var sb = getSupabase(); if (!sb || !familyId) return;
       try {
-        const { error } = await supabase.from(table).delete().eq('id', String(id));
-        if (error) console.error('Delete error', table, JSON.stringify(error));
-      } catch(e) {
-        console.warn('Delete skipped (environment error):', table, e && e.message);
-      }
+        var res = await sb.from(table).delete().eq('id', String(id)).eq('family_id', familyId);
+        if (res.error) console.error('Delete error', table, res.error.message);
+      } catch(e) { console.warn('dbDelete skipped:', e && e.message); }
     }
 
-    async function dbSaveAppState(key, value) {
-      if (!ONLINE_MODE()) return;
+    async function dbSaveAppState(key, value, familyId) {
+      var sb = getSupabase(); if (!sb) return;
+      var fid = familyId || await getFamilyId(); if (!fid) return;
       try {
-        const { error } = await supabase.from('app_state').upsert({ key: key, value: value }, { onConflict: 'key' });
-        if (error) console.error('AppState error', JSON.stringify(error));
-      } catch(e) {
-        console.warn('AppState save skipped (environment error):', e && e.message);
-      }
+        var res = await sb.from('app_state').upsert({ key: key, family_id: fid, value: value }, { onConflict: 'key,family_id' });
+        if (res.error) console.error('AppState error', res.error.message);
+      } catch(e) { console.warn('dbSaveAppState skipped:', e && e.message); }
     }
 
-    async function dbLoadAppState(key) {
-      const { data, error } = await supabase.from('app_state').select('*').eq('key', key).single();
-      if (error || !data) return null;
-      return data.value;
+    async function dbLoadAppState(key, familyId) {
+      var sb = getSupabase(); if (!sb) return null;
+      var fid = familyId || await getFamilyId(); if (!fid) return null;
+      var res = await sb.from('app_state').select('*').eq('key', key).eq('family_id', fid).single();
+      if (res.error || !res.data) return null;
+      return res.data.value;
     }
 
-    // ── PUSH NOTIFICATIONS ───────────────────────────────────────────
-    const VAPID_PUBLIC_KEY = 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY';
-
-    function urlBase64ToUint8Array(base64String) {
-      const padding = '='.repeat((4 - base64String.length % 4) % 4);
-      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-      const rawData = atob(base64);
-      return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-    }
-
-    async function registerPush() {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-      if (VAPID_PUBLIC_KEY === 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY') return;
-      try {
-        const reg = await navigator.serviceWorker.register('/service-worker.js');
-        await navigator.serviceWorker.ready;
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
-        const existing = await reg.pushManager.getSubscription();
-        const sub = existing || await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
-        const subData = JSON.parse(JSON.stringify(sub));
-        if (ONLINE_MODE()) {
-          await supabase.from('push_subscriptions').upsert(
-            { id: subData.endpoint, data: subData },
-            { onConflict: 'id' }
-          );
-        }
-        console.log('[TFH] Push subscription registered');
-      } catch(e) {
-        console.warn('[TFH] Push registration failed:', e);
-      }
-    }
-
-    async function sendPushNotification(title, body) {
-      if (!ONLINE_MODE()) return;
-      if (VAPID_PUBLIC_KEY === 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY') return;
-      try {
-        await fetch('/api/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, body }),
-        });
-      } catch(e) {
-        console.warn('[TFH] Push send failed:', e);
-      }
-    }
-
-    const PUSH_LABELS = {
-      members: 'Family', tasks: 'Tasks', events: 'Calendar',
-      transactions: 'Finance', recurring: 'Recurring', notes: 'Notes', routines: 'Routines',
-    };
-
-    // ── LOCAL CACHE HELPERS ──────────────────────────────────────────
+    // ── LOCAL CACHE ──────────────────────────────────────────────────
     const CACHE_KEY = 'tfh_data_cache';
-
     function saveToCache(data) {
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({
-          members: data.members,
-          tasks: data.tasks,
-          events: data.events,
-          transactions: data.transactions,
-          recurring: data.recurring,
-          notes: data.notes,
-          routines: data.routines,
-          recurringApplied: data.recurringApplied || [],
-        }));
-      } catch(e) {}
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ members:data.members, tasks:data.tasks, events:data.events, transactions:data.transactions, recurring:data.recurring, notes:data.notes, routines:data.routines, recurringApplied:data.recurringApplied||[] })); } catch(e) {}
     }
-
     function loadFromCache() {
-      try {
-        const s = localStorage.getItem(CACHE_KEY);
-        return s ? JSON.parse(s) : null;
-      } catch(e) { return null; }
+      try { var s = localStorage.getItem(CACHE_KEY); return s ? JSON.parse(s) : null; } catch(e) { return null; }
     }
 
-    const initialState = {
-      members: [], tasks: [], events: [], transactions: [],
-      recurring: [], recurringApplied: [], notes: [], routines: [],
-    };
-
-
-    const COLORS = {
-      bg: "#F0F4FF", card: "#FFFFFF", primary: "#4F46E5", accent: "#F59E0B",
-      soft: "#EEF2FF", danger: "#EF4444", success: "#10B981",
-      text: "#0F172A", muted: "#64748B", border: "#E2E8F0",
-      primary2: "#7C3AED", gradStart: "#4F46E5", gradEnd: "#7C3AED",
-    };
-    const FONT = {
-      display: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
-      body: "'Plus Jakarta Sans', 'DM Sans', 'Segoe UI', sans-serif",
-    };
-    const categoryIcons = {
-      groceries:"🛒", income:"💰", "family pot":"🫙", kids:"👶",
-      entertainment:"🎬", utilities:"💡", dining:"🍽️", chores:"🧹", finance:"💳", other:"📦",
-    };
-    const TABS = ["Dashboard","Calendar","Tasks","Finance","Recurring","Notes","Routines","Family"];
-    function ym(year, month) { return `${year}-${String(month+1).padStart(2,"0")}`; }
-
-    // ── MAIN APP ─────────────────────────────────────────────────────
-    
-    // ══════════════════════════════════════════════════════════════
-    // AUTH CODE SYSTEM
-    // ══════════════════════════════════════════════════════════════
-    function getUKToday() {
-      return new Date().toLocaleDateString('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-');
-    }
-    function formatUKDate(str) {
-      if (!str) return '';
-      try {
-        var parts = str.split('-');
-        return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
-          .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-      } catch(e) { return str; }
-    }
-    var _TODAY = getUKToday();
-    var DEFAULT_CODES = [
-      { id: 'admin', code: 'FAMILY2026', role: 'admin', label: 'Admin (you)', active: true },
-      { id: 'guest1', code: 'HOME2026', role: 'member', label: 'Family Member', active: true },
-    ];
-
-    function getStoredCodes() {
-      try { var s = localStorage.getItem('fh_codes'); return s ? JSON.parse(s) : DEFAULT_CODES; }
-      catch(e) { return DEFAULT_CODES; }
-    }
-
-    function saveCodes(codes) {
-      try { localStorage.setItem('fh_codes', JSON.stringify(codes)); } catch(e) {}
-      if (ONLINE_MODE()) {
-        supabase.from('app_state').upsert({ key: 'access_codes', value: codes }, { onConflict: 'key' }).then(function(){});
-      }
-    }
-
-    function checkCode(input, codes) {
-      return codes.find(function(c){ return c.active && c.code.toUpperCase() === input.trim().toUpperCase(); }) || null;
-    }
-
-    function generateCode() {
-      var words = ['FAMILY','HOME','HOUSE','NEST','HAVEN','LOVE','BLOOM','SUNNY','HAPPY','COSY'];
-      return words[Math.floor(Math.random()*words.length)] + (Math.floor(Math.random()*900)+100);
-    }
-
+    // ── AUTH SCREENS ─────────────────────────────────────────────────
     function AuthScreen({ onAuth }) {
-      const [input, setInput] = useState('');
+      const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'join' | 'create'
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [name, setName] = useState('');
+      const [inviteCode, setInviteCode] = useState('');
+      const [familyName, setFamilyName] = useState('');
       const [error, setError] = useState('');
-      const [codes, setCodes] = useState(DEFAULT_CODES);
-      const [loading, setLoading] = useState(true);
+      const [loading, setLoading] = useState(false);
+      const [step, setStep] = useState('auth'); // 'auth' | 'family'
+      const sb = getSupabase();
 
-      useEffect(() => {
-        var stored = getStoredCodes();
-        setCodes(stored);
-        setLoading(false);
-        if (ONLINE_MODE()) {
-          supabase.from('app_state').select('*').eq('key','access_codes').then(function(res){
-            if (res.data && res.data[0] && res.data[0].value) {
-              var remote = res.data[0].value;
-              localStorage.setItem('fh_codes', JSON.stringify(remote));
-              setCodes(remote);
-            }
-          });
+      var doLogin = async function() {
+        setLoading(true); setError('');
+        var res = await sb.auth.signInWithPassword({ email: email.trim(), password });
+        if (res.error) { setError(res.error.message); setLoading(false); return; }
+        // Check if they have a family already
+        var prof = await sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single();
+        if (prof.data && prof.data.family_id) {
+          onAuth(prof.data.role || 'member', prof.data.family_id);
+        } else {
+          setStep('family'); setLoading(false);
         }
-      }, []);
-
-      var handleSubmit = function() {
-        var match = checkCode(input, codes);
-        if (match) {
-          localStorage.setItem('fh_session', JSON.stringify({ code: match.code, role: match.role, ts: Date.now() }));
-          onAuth(match.role);
-        } else { setError('Incorrect code. Please try again.'); setInput(''); }
       };
 
+      var doSignup = async function() {
+        if (!name.trim()) { setError('Please enter your name'); return; }
+        setLoading(true); setError('');
+        var res = await sb.auth.signUp({ email: email.trim(), password, options: { data: { display_name: name.trim() } } });
+        if (res.error) { setError(res.error.message); setLoading(false); return; }
+        setStep('family'); setLoading(false);
+      };
+
+      var doCreateFamily = async function() {
+        setLoading(true); setError('');
+        var res = await sb.rpc('create_family', { family_name: familyName.trim() || 'My Family' });
+        if (res.error) { setError(res.error.message); setLoading(false); return; }
+        onAuth('admin', res.data);
+      };
+
+      var doJoinFamily = async function() {
+        if (!inviteCode.trim()) { setError('Enter invite code'); return; }
+        setLoading(true); setError('');
+        var res = await sb.rpc('join_family_by_code', { code: inviteCode.trim().toUpperCase() });
+        if (res.error) { setError('Invalid invite code. Ask your family admin.'); setLoading(false); return; }
+        onAuth('member', res.data);
+      };
+
+      var btnStyle = { width:'100%', padding:'13px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', marginTop:8 };
+      var inputStyle = { width:'100%', padding:'12px 14px', fontSize:14, border:'2px solid #E2E8F0', borderRadius:10, outline:'none', background:'#F8FAFC', marginBottom:10, boxSizing:'border-box' };
+      var linkStyle = { background:'none', border:'none', color:'#4F46E5', fontSize:13, cursor:'pointer', fontWeight:600, padding:0 };
+
+      if (step === 'family') return (
+        React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg,#4F46E5,#7C3AED)' } },
+          React.createElement('div', { style:{ background:'#fff', borderRadius:24, padding:'36px 28px', width:'90%', maxWidth:380, boxShadow:'0 32px 80px rgba(79,70,229,0.3)' } },
+            React.createElement('div', { style:{ fontSize:36, textAlign:'center', marginBottom:8 } }, mode === 'join' ? '🏡' : '✨'),
+            React.createElement('div', { style:{ fontSize:20, fontWeight:800, color:'#0F172A', textAlign:'center', marginBottom:4 } }, mode === 'join' ? 'Join a Family' : 'Create Your Family'),
+            React.createElement('div', { style:{ fontSize:13, color:'#64748B', textAlign:'center', marginBottom:24 } }, mode === 'join' ? 'Enter the invite code from your family admin' : 'Start fresh — you can invite others after'),
+            error && React.createElement('div', { style:{ background:'#FEF2F2', color:'#EF4444', borderRadius:8, padding:'10px 12px', fontSize:13, marginBottom:12, fontWeight:600 } }, error),
+            mode === 'join'
+              ? React.createElement('input', { type:'text', placeholder:'e.g. ABC123', value:inviteCode, onChange:function(e){ setInviteCode(e.target.value.toUpperCase()); setError(''); }, style:{ ...inputStyle, textAlign:'center', fontSize:22, letterSpacing:4, fontWeight:700 } })
+              : React.createElement('input', { type:'text', placeholder:'Family name (e.g. The Smiths)', value:familyName, onChange:function(e){ setFamilyName(e.target.value); setError(''); }, style:inputStyle }),
+            React.createElement('button', { onClick: mode === 'join' ? doJoinFamily : doCreateFamily, disabled:loading, style:btnStyle }, loading ? 'Please wait…' : mode === 'join' ? 'Join Family' : 'Create Family'),
+            React.createElement('div', { style:{ textAlign:'center', marginTop:16, fontSize:13, color:'#64748B' } },
+              mode === 'join'
+                ? React.createElement(React.Fragment, null, 'Or ', React.createElement('button', { onClick:function(){ setMode('create'); setError(''); }, style:linkStyle }, 'create a new family'))
+                : React.createElement(React.Fragment, null, 'Have an invite code? ', React.createElement('button', { onClick:function(){ setMode('join'); setError(''); }, style:linkStyle }, 'Join instead'))
+            )
+          )
+        )
+      );
+
       return (
-        React.createElement('div', { style: { display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)', fontFamily:"'Plus Jakarta Sans','DM Sans',sans-serif" },}
-          , React.createElement('div', { style: { background:'#fff', borderRadius:24, padding:'40px 32px', width:'90%', maxWidth:380, boxShadow:'0 32px 80px rgba(79,70,229,0.3)', textAlign:'center' },}
-            , React.createElement('div', { style: { width:72, height:72, borderRadius:20, background:'linear-gradient(135deg,#4F46E5,#7C3AED)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36, margin:'0 auto 16px' },}, "🏡")
-            , React.createElement('div', { style: { fontSize:24, fontWeight:800, color:'#0F172A', marginBottom:4 },}, "Teddy Family Hub")
-            , React.createElement('div', { style: { fontSize:13, color:'#64748B', marginBottom:28 },}, "Enter your access code to continue")
-            , React.createElement('input', {
-              type: "text", value: input, placeholder: "ENTER CODE",
-              onChange: e => { setInput(e.target.value.toUpperCase()); setError(''); },
-              onKeyDown: e => e.key === 'Enter' && handleSubmit(),
-              style: { width:'100%', padding:'14px 16px', fontSize:22, textAlign:'center', letterSpacing:6,
-                fontWeight:800, border:'2px solid #E2E8F0', borderRadius:12, outline:'none',
-                background:'#F8FAFC', marginBottom:8, textTransform:'uppercase', boxSizing:'border-box', transition:'border-color 0.15s' },}
+        React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', fontFamily:"'Plus Jakarta Sans','DM Sans',sans-serif" } },
+          React.createElement('div', { style:{ background:'#fff', borderRadius:24, padding:'40px 32px', width:'90%', maxWidth:380, boxShadow:'0 32px 80px rgba(79,70,229,0.3)', textAlign:'center' } },
+            React.createElement('div', { style:{ width:72, height:72, borderRadius:20, background:'linear-gradient(135deg,#4F46E5,#7C3AED)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36, margin:'0 auto 16px' } }, '🏡'),
+            React.createElement('div', { style:{ fontSize:24, fontWeight:800, color:'#0F172A', marginBottom:4 } }, 'Teddy Family Hub'),
+            React.createElement('div', { style:{ fontSize:13, color:'#64748B', marginBottom:24 } }, mode === 'signup' ? 'Create your account' : 'Welcome back'),
+            error && React.createElement('div', { style:{ background:'#FEF2F2', color:'#EF4444', borderRadius:8, padding:'10px 12px', fontSize:13, marginBottom:12, fontWeight:600, textAlign:'left' } }, error),
+            mode === 'signup' && React.createElement('input', { type:'text', placeholder:'Your name', value:name, onChange:function(e){ setName(e.target.value); setError(''); }, style:inputStyle }),
+            React.createElement('input', { type:'email', placeholder:'Email address', value:email, onChange:function(e){ setEmail(e.target.value); setError(''); }, onKeyDown:function(e){ if(e.key==='Enter') mode==='login'?doLogin():doSignup(); }, style:inputStyle }),
+            React.createElement('input', { type:'password', placeholder:'Password', value:password, onChange:function(e){ setPassword(e.target.value); setError(''); }, onKeyDown:function(e){ if(e.key==='Enter') mode==='login'?doLogin():doSignup(); }, style:inputStyle }),
+            React.createElement('button', { onClick: mode === 'login' ? doLogin : doSignup, disabled:loading, style:btnStyle }, loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'),
+            React.createElement('div', { style:{ marginTop:16, fontSize:13, color:'#64748B' } },
+              mode === 'login'
+                ? React.createElement(React.Fragment, null, "Don't have an account? ", React.createElement('button', { onClick:function(){ setMode('signup'); setError(''); }, style:linkStyle }, 'Sign up'))
+                : React.createElement(React.Fragment, null, 'Already have an account? ', React.createElement('button', { onClick:function(){ setMode('login'); setError(''); }, style:linkStyle }, 'Sign in'))
             )
-            , error && React.createElement('div', { style: { color:'#EF4444', fontSize:13, marginBottom:8, fontWeight:600 },}, error)
-            , React.createElement('button', { onClick: handleSubmit, disabled: loading,
-              style: { width:'100%', padding:'14px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff',
-                border:'none', borderRadius:12, fontSize:16, fontWeight:700, cursor:'pointer', marginTop:8, boxShadow:'0 4px 16px rgba(79,70,229,0.35)', transition:'all 0.2s' },}
-              , loading ? 'Loading…' : 'Enter Teddy Family Hub'
-            )
-            , React.createElement('div', { style: { marginTop:18, fontSize:12, color:'#94A3B8' },}, "Ask your family admin for a code")
           )
         )
       );
     }
 
-    function CodeManager({ onClose }) {
-      const [codes, setCodes] = useState(getStoredCodes());
-      const [newLabel, setNewLabel] = useState('');
-      const [newRole, setNewRole] = useState('member');
-      const [saved, setSaved] = useState(false);
-
-      var persist = function(updated) {
-        saveCodes(updated); setCodes(updated);
-        setSaved(true); setTimeout(function(){ setSaved(false); }, 2000);
-      };
-
+    function InviteCodePanel({ familyId }) {
+      const [code, setCode] = useState('');
+      const sb = getSupabase();
+      useEffect(function() {
+        if (!familyId) return;
+        sb.from('families').select('invite_code,name').eq('id', familyId).single().then(function(res) {
+          if (res.data) setCode(res.data.invite_code);
+        });
+      }, [familyId]);
+      if (!code) return null;
       return (
-        React.createElement('div', { className: "overlay", onClick: e => e.target === e.currentTarget && onClose(),}
-          , React.createElement('div', { style: { background:'#fff', borderRadius:16, padding:24, width:'90%', maxWidth:440, maxHeight:'88vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' },}
-            , React.createElement('div', { style: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 },}
-              , React.createElement('div', { style: { fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700 },}, "🔑 Access Codes"  )
-              , React.createElement('button', { onClick: onClose, style: { background:'none', border:'none', fontSize:22, color:'#6B6B6B', cursor:'pointer' },}, "✕")
-            )
-            , saved && React.createElement('div', { style: { background:'#EFF7E8', borderRadius:8, padding:'8px 12px', marginBottom:12, fontSize:13, color:'#27AE60', fontWeight:600 },}, "✅ Saved and synced"   )
-
-            , codes.map(c => (
-              React.createElement('div', { key: c.id, style: { border:'1.5px solid #E0D8C8', borderRadius:10, padding:'12px 14px', marginBottom:10, opacity:c.active?1:0.55 },}
-                , React.createElement('div', { style: { display:'flex', justifyContent:'space-between', alignItems:'center' },}
-                  , React.createElement('div', null
-                    , React.createElement('div', { style: { fontSize:14, fontWeight:700 },}, c.label)
-                    , React.createElement('div', { style: { fontSize:11, color:'#6B6B6B' },}, c.role==='admin'?'👑 Admin':'👤 Member')
-                  )
-                  , React.createElement('span', { style: { fontSize:10, padding:'2px 8px', borderRadius:999, fontWeight:700, background:c.active?'#EFF7E8':'#FEF0F0', color:c.active?'#27AE60':'#C0392B' },}, c.active?'Active':'Paused')
-                )
-                , React.createElement('div', { style: { marginTop:10, background:'#F9F6F0', borderRadius:8, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' },}
-                  , React.createElement('div', { style: { fontFamily:'monospace', fontSize:18, fontWeight:700, letterSpacing:2, color:'#2D5016' },}, c.code)
-                  , React.createElement('div', { style: { display:'flex', gap:6 },}
-                    , React.createElement('button', { onClick: () => persist(codes.map(x => x.id===c.id?{...x,code:generateCode()}:x)),
-                      style: { background:'#F0EAD6', border:'none', borderRadius:6, padding:'5px 10px', fontSize:12, fontWeight:600, color:'#2D5016', cursor:'pointer' },}, "🔄 New" )
-                    , React.createElement('button', { onClick: () => persist(codes.map(x => x.id===c.id?{...x,active:!x.active}:x)),
-                      style: { background:c.active?'#FEF0F0':'#EFF7E8', border:'none', borderRadius:6, padding:'5px 10px', fontSize:12, fontWeight:600, color:c.active?'#C0392B':'#27AE60', cursor:'pointer' },}
-                      , c.active?'Pause':'Resume')
-                    , c.role!=='admin' && React.createElement('button', { onClick: () => persist(codes.filter(x => x.id!==c.id)),
-                      style: { background:'#FEF0F0', border:'none', borderRadius:6, padding:'5px 8px', fontSize:13, color:'#C0392B', cursor:'pointer' },}, "✕")
-                  )
-                )
-              )
-            ))
-
-            , React.createElement('div', { style: { borderTop:'1.5px solid #E0D8C8', paddingTop:16, marginTop:4 },}
-              , React.createElement('div', { style: { fontWeight:700, fontSize:13, marginBottom:10, color:'#444' },}, "+ Add New Code"   )
-              , React.createElement('input', { type: "text", value: newLabel, placeholder: "Label (e.g. Grandma)"  ,
-                onChange: e => setNewLabel(e.target.value),
-                style: { width:'100%', padding:'9px 12px', border:'1.5px solid #E0D8C8', borderRadius:8, fontSize:14, outline:'none', marginBottom:8, boxSizing:'border-box' },} )
-              , React.createElement('div', { style: { display:'flex', gap:8, marginBottom:10 },}
-                , ['member','admin'].map(r => (
-                  React.createElement('button', { key: r, onClick: () => setNewRole(r),
-                    style: { flex:1, padding:'8px 0', borderRadius:8, border:'2px solid', cursor:'pointer',
-                      borderColor:newRole===r?'#2D5016':'#E0D8C8', background:newRole===r?'#2D5016':'transparent',
-                      color:newRole===r?'#fff':'#6B6B6B', fontWeight:600, fontSize:13 },}
-                    , r==='admin'?'👑 Admin':'👤 Member'
-                  )
-                ))
-              )
-              , React.createElement('button', { onClick: () => { if(!newLabel.trim())return; persist([...codes,{id:'c'+Date.now(),code:generateCode(),role:newRole,label:newLabel.trim(),active:true}]); setNewLabel(''); },
-                style: { width:'100%', padding:'10px 0', background:'#2D5016', color:'#fff', border:'none', borderRadius:8, fontWeight:700, fontSize:14, cursor:'pointer' },}, "+ Generate Code"
-
-              )
-            )
-          )
+        React.createElement('div', { style:{ background:'#EEF2FF', borderRadius:10, padding:'10px 14px', marginBottom:12 } },
+          React.createElement('div', { style:{ fontSize:11, color:'#4F46E5', fontWeight:700, marginBottom:4 } }, '🔗 FAMILY INVITE CODE'),
+          React.createElement('div', { style:{ fontFamily:'monospace', fontSize:22, fontWeight:800, letterSpacing:4, color:'#1E1B4B' } }, code),
+          React.createElement('div', { style:{ fontSize:11, color:'#6366F1', marginTop:4 } }, 'Share this code with family members to join')
         )
       );
     }
 
 function FamilyApp() {
       // ── ALL HOOKS MUST BE DECLARED FIRST — no early returns before this block ──
-      const [authRole, setAuthRole] = useState(() => {
-        try {
-          var s = localStorage.getItem('fh_session');
-          if (!s) return null;
-          var sess = JSON.parse(s);
-          if (Date.now() - sess.ts > 30*24*60*60*1000) { localStorage.removeItem('fh_session'); return null; }
-          return sess.role;
-        } catch(e) { return null; }
-      });
-      const [showCodes, setShowCodes] = useState(false);
+      const [authRole, setAuthRole] = useState(null);
+      const [familyId, setFamilyId] = useState(null);
+      const [authChecked, setAuthChecked] = useState(false);
+      
       const [tab, setTab] = useState("Dashboard");
       const [data, setData] = useState(null);
       const [modal, setModal] = useState(null);
@@ -17593,181 +17426,158 @@ function FamilyApp() {
       const [isListening, setIsListening] = useState(false);
       const recognitionRef = useRef(null);
 
-      // ── LOAD FROM SUPABASE ON MOUNT ──────────────────────────────
+      // ── AUTH CHECK + DATA LOAD ────────────────────────────────────
       useEffect(() => {
-        async function load() {
-          setSyncStatus("loading");
-          // Show cache immediately — never block on network
-          const cached = loadFromCache();
-          if (cached && cached.members) {
-            setData(cached);
-            setSyncStatus("offline");
-          }
-          // Try Supabase with 6s timeout
-          if (ONLINE_MODE()) {
-            try {
-              const rows = await Promise.race([
-                dbLoad(),
-                new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 6000); })
-              ]);
-              if (rows && rows.members) {
-                if (rows.members.length > 0) {
-                  const recurringApplied = await dbLoadAppState('recurringApplied') || [];
-                  const remoteBudget = await dbLoadAppState('monthlyBudget');
-                  if (remoteBudget && Number(remoteBudget) > 0) {
-                    try { localStorage.setItem('tfh_budget', String(remoteBudget)); } catch(e) {}
-                  }
-                  const loaded = {
-                    members: rowsToArray(rows.members),
-                    tasks: rowsToArray(rows.tasks || []),
-                    events: rowsToArray(rows.events || []),
-                    transactions: rowsToArray(rows.transactions || []),
-                    recurring: rowsToArray(rows.recurring || []),
-                    notes: rowsToArray(rows.notes || []),
-                    routines: rowsToArray(rows.routines || []),
-                    recurringApplied: recurringApplied,
-                  };
-                  setData(loaded);
-                  saveToCache(loaded);
-                  setSyncStatus("ok");
-                  return;
-                } else {
-                  if (cached && cached.members && cached.members.length > 0) {
-                    setData(cached);
-                    Object.entries(cached).forEach(function(entry) {
-                      var key = entry[0]; var val = entry[1];
-                      if (key === 'recurringApplied') { dbSaveAppState('recurringApplied', val); }
-                      else if (Array.isArray(val) && val.length > 0) { dbSave(key, val); }
-                    });
-                    setSyncStatus("ok");
-                    return;
-                  }
-                  const blank = { members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] };
-                  await dbSaveAppState('recurringApplied', []);
-                  setData(blank);
-                  saveToCache(blank);
-                  setSyncStatus("ok");
-                  return;
-                }
-              }
-            } catch(e) {
-              console.warn('[TFH] Supabase load failed:', e.message);
-            }
-          }
-          if (!cached) {
-            setData({ members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] });
-          }
-          setSyncStatus("offline");
+        var sb = getSupabase();
+        if (!sb) {
+          // Offline mode — use cache
+          setAuthChecked(true);
+          var cached = loadFromCache();
+          if (cached && cached.members) { setData(cached); setSyncStatus('offline'); }
+          else { setData({ members:[], tasks:[], events:[], transactions:[], recurring:[], notes:[], routines:[], recurringApplied:[] }); setSyncStatus('offline'); }
+          return;
         }
-        load();
-        registerPush();
+
+        // Check existing session first
+        sb.auth.getSession().then(async function(res) {
+          var session = res.data && res.data.session;
+          if (!session) { setAuthChecked(true); return; }
+          // Get profile + family
+          var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
+          if (!prof.data || !prof.data.family_id) { setAuthChecked(true); return; }
+          setAuthRole(prof.data.role || 'member');
+          setFamilyId(prof.data.family_id);
+          setAuthChecked(true);
+          loadFamilyData(prof.data.family_id);
+        });
+
+        // Listen for auth changes (login/logout)
+        var { data: listener } = sb.auth.onAuthStateChange(async function(event, session) {
+          if (event === 'SIGNED_OUT') { setAuthRole(null); setFamilyId(null); setData(null); return; }
+        });
+        return function() { listener && listener.subscription && listener.subscription.unsubscribe(); };
       }, []);
 
-      // ── REAL-TIME SUBSCRIPTIONS ──────────────────────────────────
-      useEffect(() => {
-        if (!data) return;
+      async function loadFamilyData(fid) {
+        setSyncStatus('loading');
+        var cached = loadFromCache();
+        if (cached && cached.members) { setData(cached); setSyncStatus('offline'); }
         if (!ONLINE_MODE()) return;
-        const channels = ['members','tasks','events','transactions','recurring','notes','routines'].map(table => {
-          return supabase.channel(`realtime-${table}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table }, async () => {
-              // Skip re-fetch if we have a pending save for this table (avoid overwriting local changes)
+        try {
+          var rows = await Promise.race([
+            dbLoad(fid),
+            new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); })
+          ]);
+          if (rows) {
+            var recurringApplied = await dbLoadAppState('recurringApplied', fid) || [];
+            var remoteBudget = await dbLoadAppState('monthlyBudget', fid);
+            if (remoteBudget && Number(remoteBudget) > 0) {
+              try { localStorage.setItem('tfh_budget', String(remoteBudget)); } catch(e) {}
+            }
+            var loaded = {
+              members: rowsToArray(rows.members),
+              tasks: rowsToArray(rows.tasks || []),
+              events: rowsToArray(rows.events || []),
+              transactions: rowsToArray(rows.transactions || []),
+              recurring: rowsToArray(rows.recurring || []),
+              notes: rowsToArray(rows.notes || []),
+              routines: rowsToArray(rows.routines || []),
+              recurringApplied: recurringApplied,
+            };
+            setData(loaded); saveToCache(loaded); setSyncStatus('ok');
+          }
+        } catch(e) {
+          console.warn('[TFH] Load failed:', e.message);
+          if (!cached) setData({ members:[], tasks:[], events:[], transactions:[], recurring:[], notes:[], routines:[], recurringApplied:[] });
+          setSyncStatus('offline');
+        }
+      }
+
+
+
+      // ── REAL-TIME SUBSCRIPTIONS (scoped to family) ───────────────
+      useEffect(() => {
+        if (!data || !familyId) return;
+        var sb = getSupabase(); if (!sb) return;
+        var tables = ['members','tasks','events','transactions','recurring','notes','routines'];
+        var channels = tables.map(function(table) {
+          return sb.channel('rt-' + familyId.slice(0,8) + '-' + table)
+            .on('postgres_changes', { event: '*', schema: 'public', table: table,
+              filter: 'family_id=eq.' + familyId }, async function() {
               if (pendingSaves.current[table]) return;
-              const { data: rows } = await supabase.from(table).select('*');
-              if (rows) {
-                setData(d => {
-                  const next = { ...d, [table]: rowsToArray(rows) };
-                  saveToCache(next);
-                  return next;
+              var res = await sb.from(table).select('*').eq('family_id', familyId);
+              if (res.data) {
+                setData(function(d) {
+                  var next = Object.assign({}, d); next[table] = rowsToArray(res.data);
+                  saveToCache(next); return next;
                 });
               }
-            })
-            .subscribe();
+            }).subscribe();
         });
-        return () => channels.forEach(c => supabase.removeChannel(c));
-      }, [!!data]);
+        return function() { channels.forEach(function(c) { sb.removeChannel(c); }); };
+      }, [!!data, familyId]);
 
-      // ── SYNC TO SUPABASE (immediate per table, no shared timer race) ─
+      // ── SYNC TO SUPABASE ─────────────────────────────────────────
       const syncToDb = useCallback((table, items, deletedId = null) => {
-        setSyncStatus("syncing");
-        // Accumulate items and deletes per table
+        if (!familyId) return;
+        setSyncStatus('syncing');
         if (!pendingSaves.current[table]) pendingSaves.current[table] = { items: null, deletedIds: [] };
         if (items !== null) pendingSaves.current[table].items = items;
         if (deletedId !== null) pendingSaves.current[table].deletedIds.push(deletedId);
-        // Clear any existing timer for THIS table only
         if (syncTimer.current[table]) clearTimeout(syncTimer.current[table]);
-        syncTimer.current[table] = setTimeout(async () => {
-          const entry = pendingSaves.current[table];
-          if (!entry) return;
-          delete pendingSaves.current[table];
-          delete syncTimer.current[table];
+        syncTimer.current[table] = setTimeout(async function() {
+          var entry = pendingSaves.current[table]; if (!entry) return;
+          delete pendingSaves.current[table]; delete syncTimer.current[table];
           try {
-            if (entry.items) await dbSave(table, entry.items);
-            for (const id of entry.deletedIds) await dbDelete(table, id);
-            setSyncStatus("ok");
-          } catch(e) {
-            console.error('[TFH] Sync error:', table, e);
-            setSyncStatus("error");
-          }
+            if (entry.items) await dbSave(table, entry.items, familyId);
+            for (var i = 0; i < entry.deletedIds.length; i++) await dbDelete(table, entry.deletedIds[i], familyId);
+            setSyncStatus('ok');
+          } catch(e) { console.error('[TFH] Sync error:', table, e); setSyncStatus('error'); }
         }, 400);
-      }, []);
+      }, [familyId]);
 
-      // ── FLUSH PENDING SAVES BEFORE PAGE UNLOAD ───────────────────
+      // ── FLUSH ON UNLOAD ──────────────────────────────────────────
       useEffect(() => {
-        const flush = () => {
-          // Cancel all pending timers and save immediately
-          Object.keys(syncTimer.current).forEach(t => clearTimeout(syncTimer.current[t]));
+        var flush = function() {
+          Object.keys(syncTimer.current).forEach(function(t) { clearTimeout(syncTimer.current[t]); });
           syncTimer.current = {};
-          Object.entries(pendingSaves.current).forEach(([t, { items, deletedIds }]) => {
-            if (items) dbSave(t, items);
-            if (deletedIds) deletedIds.forEach(id => dbDelete(t, id));
+          Object.entries(pendingSaves.current).forEach(function(e2) {
+            var t = e2[0]; var v = e2[1];
+            if (v.items) dbSave(t, v.items, familyId);
+            if (v.deletedIds) v.deletedIds.forEach(function(id) { dbDelete(t, id, familyId); });
           });
           pendingSaves.current = {};
         };
         window.addEventListener('beforeunload', flush);
-        return () => window.removeEventListener('beforeunload', flush);
-      }, []);
+        return function() { window.removeEventListener('beforeunload', flush); };
+      }, [familyId]);
 
       // ── SMART setData THAT ALSO SYNCS ────────────────────────────
       const setDataAndSync = useCallback((updater, table, deletedId) => {
-        setData(prev => {
-          const next = typeof updater === 'function' ? updater(prev) : updater;
-          // Always update cache immediately so refresh never loses data
+        setData(function(prev) {
+          var next = typeof updater === 'function' ? updater(prev) : updater;
           saveToCache(next);
           if (table) {
             if (table === 'recurringApplied') {
-              dbSaveAppState('recurringApplied', next.recurringApplied);
+              dbSaveAppState('recurringApplied', next.recurringApplied, familyId);
             } else if (deletedId) {
-              // DELETE operation — only delete the row, don't upsert remaining
-              dbDelete(table, deletedId);
-              sendPushNotification('🗑️ ' + (PUSH_LABELS[table] || table) + ' Updated', 'An item was deleted');
+              dbDelete(table, deletedId, familyId);
             } else {
-              // ADD or EDIT operation — upsert the changed items
               syncToDb(table, next[table], null);
-              const prevLen = (prev[table] || []).length;
-              const nextLen = (next[table] || []).length;
-              const label = PUSH_LABELS[table] || table;
-              if (nextLen > prevLen) {
-                sendPushNotification('✨ New in ' + label, 'A new item was added to ' + label);
-              } else {
-                sendPushNotification('✏️ ' + label + ' Updated', 'An item was edited in ' + label);
-              }
             }
           } else {
-            ['members','tasks','events','transactions','recurring','notes','routines'].forEach(t => {
-              if (JSON.stringify(prev[t]) !== JSON.stringify(next[t])) {
-                syncToDb(t, next[t]);
-                sendPushNotification('🔄 ' + (PUSH_LABELS[t] || t) + ' Updated', 'Changes were made in ' + (PUSH_LABELS[t] || t));
-              }
+            ['members','tasks','events','transactions','recurring','notes','routines'].forEach(function(t) {
+              if (JSON.stringify(prev[t]) !== JSON.stringify(next[t])) syncToDb(t, next[t]);
             });
             if (JSON.stringify(prev.recurringApplied) !== JSON.stringify(next.recurringApplied)) {
-              dbSaveAppState('recurringApplied', next.recurringApplied);
+              dbSaveAppState('recurringApplied', next.recurringApplied, familyId);
             }
           }
           return next;
         });
-      }, [syncToDb]);
+      }, [syncToDb, familyId]);
 
-      // ── RECURRING AUTO-APPLY ─────────────────────────────────────
+            // ── RECURRING AUTO-APPLY ─────────────────────────────────────
       useEffect(() => {
         if (!data) return;
         const todayUK = getUKToday();
@@ -17805,7 +17615,11 @@ function FamilyApp() {
 
       // ── LOADING SCREEN ───────────────────────────────────────────
       // ── CONDITIONAL RENDERS (after all hooks) ───────────────────
-      if (!authRole) return React.createElement(AuthScreen, { onAuth: setAuthRole });
+      if (!authChecked) return React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#F0F4FF', flexDirection:'column', gap:16 } },
+        React.createElement('div', { style:{ fontSize:48 } }, '🏡'),
+        React.createElement('div', { style:{ fontSize:16, color:'#4F46E5', fontWeight:600 } }, 'Loading…')
+      );
+      if (!authRole) return React.createElement(AuthScreen, { onAuth: function(role, fid) { setAuthRole(role); setFamilyId(fid); loadFamilyData(fid); } });
 
       if (!data) return (
         React.createElement('div', { style: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#F9F6F0", gap:16 },}
@@ -17854,86 +17668,36 @@ function FamilyApp() {
         setIsListening(false);
       };
 
-      const getApiKey = () => { try { return localStorage.getItem('tfh_ai_key') || ''; } catch(e) { return ''; } };
-      const saveApiKey = (k) => { try { localStorage.setItem('tfh_ai_key', k.trim()); } catch(e) {} };
-
+      // ── AI: calls Edge Function — no API key on client ─────────
       const processAI = async () => {
         if (!aiInput.trim()) return;
-        const apiKey = getApiKey();
-        if (!apiKey) { setAiError('api_key_needed'); return; }
-        setAiLoading(true);
-        setAiError('');
-        setAiResult(null);
+        setAiLoading(true); setAiError(''); setAiResult(null);
         try {
-          const today = _TODAY;
-          const todayObj = new Date(today);
-          const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-          const todayName = dayNames[todayObj.getDay()];
-          const memberList = data.members.map(function(m) { return m.id + ':' + m.name; }).join(', ') || '1:Family';
-          const systemPrompt = 'You are a family calendar assistant. Today is ' + todayName + ' ' + today + ' (UK date format, week starts Monday).\n\n'
-            + 'Parse the input and return ONLY a JSON object — no markdown fences, no explanation, no extra text.\n\n'
-            + 'CLASSIFICATION RULES:\n'
-            + '- Events: activities, appointments, outings, meals, watch parties, anything with a time/date (e.g. "movie night", "dentist", "dinner", "school play")\n'
-            + '- Tasks: things TO DO or reminders without a specific gathering time (e.g. "buy milk", "call the plumber", "pay bill")\n'
-            + '- Transactions: money spent or received (e.g. "spent £20", "paid for groceries", "got paid")\n'
-            + '- Notes: general information to remember\n\n'
-            + 'DATE RULES:\n'
-            + '- "tomorrow" = ' + new Date(todayObj.getTime() + 86400000).toISOString().slice(0,10) + '\n'
-            + '- "today" = ' + today + '\n'
-            + '- "next [day]" = the coming occurrence of that weekday\n'
-            + '- "by [time]" or "at [time]" both mean the event time\n'
-            + '- Convert 12h time to 24h: "6:00 p.m." = "18:00", "3pm" = "15:00", "6am" = "06:00"\n\n'
-            + 'TITLE RULES:\n'
-            + '- Clean up the title: capitalise properly, remove filler words like "by", "at", "on"\n'
-            + '- "movie Nights by 6:00 p.m. tomorrow" → title:"Movie Night", time:"18:00"\n'
-            + '- "dentist appointment next tuesday at 3pm" → title:"Dentist Appointment", time:"15:00"\n\n'
-            + 'OUTPUT FORMATS (use exactly one):\n'
-            + 'Event: {"type":"event","title":"...","date":"YYYY-MM-DD","time":"HH:MM","members":[],"color":"#4F46E5"}\n'
-            + 'Task:  {"type":"task","title":"...","due":"YYYY-MM-DD","category":"chores|kids|finance|other","assignee":memberId}\n'
-            + 'Transaction: {"type":"transaction","desc":"...","amount":-10.00,"category":"groceries|dining|utilities|entertainment|kids|other|family pot","date":"YYYY-MM-DD","member":memberId}\n'
-            + 'Note:  {"type":"note","title":"...","body":"..."}\n\n'
-            + 'Family members: ' + memberList + '\n'
-            + 'Use member id numbers. Default assignee/member to 1 if unclear.\n'
-            + 'If time is unknown use "". Return ONLY the JSON object.';
-
-          const response = await fetch('https://api.anthropic.com/v1/messages', {
+          var sb = getSupabase();
+          var session = sb ? (await sb.auth.getSession()).data.session : null;
+          var res = await fetch(AI_FUNCTION_URL, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
+              'Authorization': session ? 'Bearer ' + session.access_token : '',
             },
             body: JSON.stringify({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 300,
-              system: systemPrompt,
-              messages: [{ role: 'user', content: aiInput.trim() }],
+              input: aiInput.trim(),
+              today: _TODAY,
+              members: data.members.map(function(m){ return { id: m.id, name: m.name }; }),
             }),
           });
-          const resData = await response.json();
-          if (resData.error) {
-            if (resData.error.type === 'authentication_error') {
-              setAiError('api_key_invalid');
-            } else {
-              setAiError('API error: ' + resData.error.message);
-            }
-            setAiLoading(false);
-            return;
-          }
-          const rawText = (resData.content && resData.content[0] && resData.content[0].text) || '';
-          const bt = String.fromCharCode(96);
-          const clean = rawText.split(bt + 'json').join('').split(bt).join('').trim();
-          const parsed = JSON.parse(clean);
-          if (!parsed.type) throw new Error('no type');
-          setAiResult(parsed);
+          var json = await res.json();
+          if (json.error) throw new Error(json.error);
+          if (!json.type) throw new Error('no type in response');
+          setAiResult(json);
         } catch(e) {
-          setAiError('Could not parse that. Try: "Movie Night tomorrow at 6pm" or "Buy milk today"');
+          setAiError('Could not understand that. Try: "Movie Night tomorrow at 6pm"');
         }
         setAiLoading(false);
       };
 
-      const confirmAI = () => {
+            const confirmAI = () => {
         if (!aiResult) return;
         const r = aiResult;
         if (r.type === 'event') {
@@ -18004,7 +17768,8 @@ function FamilyApp() {
             )
             , React.createElement('div', { style: { display:"flex", gap:6, alignItems:"center" },}
               , authRole === 'admin' && React.createElement('button', { onClick: function(){ setShowCodes(true); }, title: "Access codes", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:16, cursor:"pointer" } }, "\uD83D\uDD11")
-              , React.createElement('button', { onClick: function(){ localStorage.removeItem('fh_session'); setAuthRole(null); }, title: "Log out", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:13, cursor:"pointer" } }, "\u21A9")
+              , authRole === 'admin' && React.createElement(InviteCodePanel, { familyId: familyId })
+              , React.createElement('button', { onClick: async function(){ var sb = getSupabase(); if(sb) await sb.auth.signOut(); setAuthRole(null); setFamilyId(null); setData(null); }, title: "Log out", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:13, cursor:"pointer" } }, "\u21A9")
               , data && data.members.map(m => (
                 React.createElement('div', { key: m.id, title: m.name, style: { width:32, height:32, borderRadius:"50%", background:m.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, border:"2px solid rgba(255,255,255,0.4)", overflow:"hidden", flexShrink:0 },}
                   , m.photo ? React.createElement('img', { src: m.photo, alt: m.name, style: { width:"100%", height:"100%", objectFit:"cover" },} ) : m.emoji
@@ -18013,7 +17778,7 @@ function FamilyApp() {
             )
           )
 
-          , showCodes && React.createElement(CodeManager, { onClose: function(){ setShowCodes(false); } })
+          
 
           , React.createElement('nav', { style: { background:"#fff", borderBottom:`1px solid ${COLORS.border}`, display:"flex", overflowX:"auto", padding:"0 8px", boxShadow:"0 2px 8px rgba(107,30,46,0.06)" },}
             , TABS.map(t => (
@@ -18083,25 +17848,8 @@ function FamilyApp() {
                 , aiLoading ? '⏳ Understanding...' : '✨ Process'
               )
 
-              /* API key needed */
-              , (aiError === 'api_key_needed' || aiError === 'api_key_invalid') && React.createElement('div', { style: { background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:12, padding:14, marginBottom:12 } },
-                React.createElement('div', { style: { fontSize:13, fontWeight:700, color:'#92400E', marginBottom:8 } },
-                  aiError === 'api_key_invalid' ? '🔑 API key invalid — please check and re-enter' : '🔑 Enter your Anthropic API key to use AI'
-                ),
-                React.createElement('div', { style: { fontSize:12, color:'#B45309', marginBottom:10 } }, 'Get a free key at console.anthropic.com — stored only on this device'),
-                React.createElement('div', { style: { display:'flex', gap:8 } },
-                  React.createElement('input', { type:'password', placeholder:'sk-ant-...', id:'tfh-api-key-input',
-                    style: { flex:1, padding:'8px 10px', fontSize:13, border:'1.5px solid #FED7AA', borderRadius:8, outline:'none', background:'#fff' } }),
-                  React.createElement('button', { onClick: () => {
-                    var inp = document.getElementById('tfh-api-key-input');
-                    if (inp && inp.value.trim().startsWith('sk-ant-')) { saveApiKey(inp.value.trim()); setAiError(''); }
-                    else { setAiError('api_key_invalid'); }
-                  }, style: { padding:'8px 14px', background:'#92400E', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer' } }, 'Save')
-                )
-              )
-
-              /* Other errors */
-              , aiError && aiError !== 'api_key_needed' && aiError !== 'api_key_invalid' && React.createElement('div', { style: { background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#EF4444', fontWeight:600, marginBottom:12 } }, aiError)
+              /* Errors */
+              , aiError && React.createElement('div', { style: { background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#EF4444', fontWeight:600, marginBottom:12 } }, aiError)
 
               /* Result preview */
               , aiResult && React.createElement('div', { className:'ai-result-card', style: { border:`2px solid ${typeColors[aiResult.type] || COLORS.border}`, borderRadius:14, padding:16, marginBottom:14 } },
@@ -18148,7 +17896,7 @@ function FamilyApp() {
               )
 
               /* Examples */
-              , !aiResult && !aiLoading && aiError !== 'api_key_needed' && aiError !== 'api_key_invalid' && React.createElement('div', { style: { marginTop:4 } },
+              , !aiResult && !aiLoading && React.createElement('div', { style: { marginTop:4 } },
                 React.createElement('div', { style: { fontSize:11, color:COLORS.muted, fontWeight:600, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.5px' } }, "Try saying..."),
                 ['Movie night tomorrow at 6pm', 'Dentist next Tuesday at 3pm', 'Paid £45 for groceries today', 'School play Friday 6:30pm', 'Remind me to buy milk tomorrow'].map(function(ex) {
                   return React.createElement('button', { key:ex, onClick: function() { setAiInput(ex); },
@@ -18750,7 +18498,7 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
                           onKeyDown: e => {
                             if (e.key === 'Enter') {
                               const v = Number(budgetInput);
-                              if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v); }
+                              if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v, familyId); }
                               setEditingBudget(false);
                             }
                             if (e.key === 'Escape') setEditingBudget(false);
@@ -18758,7 +18506,7 @@ function Finance({ data, setData, setModal, totalIncome, totalExpenses, balance 
                           style: { width: 90, padding: "4px 8px", fontSize: 14, fontWeight: 700, border: `1.5px solid ${COLORS.primary}`, borderRadius: 8, outline: "none", textAlign: "right" },})
                       , React.createElement('button', { onClick: () => {
                           const v = Number(budgetInput);
-                          if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v); }
+                          if (v > 0) { setMonthlyBudget(v); try { localStorage.setItem('tfh_budget', String(v)); } catch(err){} dbSaveAppState('monthlyBudget', v, familyId); }
                           setEditingBudget(false);
                         }, style: { background: COLORS.primary, color: "#fff", border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },}, "Save")
                       , React.createElement('button', { onClick: () => setEditingBudget(false), style: { background: COLORS.soft, color: COLORS.muted, border: "none", borderRadius: 8, padding: "4px 8px", fontSize: 12, cursor: "pointer" },}, "✕")
