@@ -17294,7 +17294,7 @@ exports.version = "19.2.4";
     }
 
     // ── AUTH SCREENS ─────────────────────────────────────────────────
-    function AuthScreen({ onAuth }) {
+    function AuthScreen({ onAuth, startAtFamily }) {
       const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'join' | 'create'
       const [email, setEmail] = useState('');
       const [password, setPassword] = useState('');
@@ -17303,7 +17303,7 @@ exports.version = "19.2.4";
       const [familyName, setFamilyName] = useState('');
       const [error, setError] = useState('');
       const [loading, setLoading] = useState(false);
-      const [step, setStep] = useState('auth'); // 'auth' | 'family'
+      const [step, setStep] = useState(startAtFamily ? 'family' : 'auth'); // 'auth' | 'family' | 'confirm'
       const sb = getSupabase();
 
       var doLogin = async function() {
@@ -17321,10 +17321,28 @@ exports.version = "19.2.4";
 
       var doSignup = async function() {
         if (!name.trim()) { setError('Please enter your name'); return; }
+        if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
         setLoading(true); setError('');
         var res = await sb.auth.signUp({ email: email.trim(), password, options: { data: { display_name: name.trim() } } });
         if (res.error) { setError(res.error.message); setLoading(false); return; }
-        setStep('family'); setLoading(false);
+        // If Supabase returns a session immediately (email confirm disabled) → go straight to family setup
+        if (res.data && res.data.session) {
+          setStep('family'); setLoading(false);
+          return;
+        }
+        // If user object exists but no session → email confirmation is ON in Supabase
+        // Show clear instructions
+        if (res.data && res.data.user && !res.data.session) {
+          // Check if it's a duplicate (identities array is empty for existing unconfirmed users)
+          if (res.data.user.identities && res.data.user.identities.length === 0) {
+            setError('An account with this email already exists. Try signing in instead.');
+            setLoading(false);
+            return;
+          }
+          setStep('confirm'); setLoading(false);
+          return;
+        }
+        setError('Something went wrong. Please try again.'); setLoading(false);
       };
 
       var doCreateFamily = async function() {
@@ -17345,6 +17363,25 @@ exports.version = "19.2.4";
       var btnStyle = { width:'100%', padding:'13px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', marginTop:8 };
       var inputStyle = { width:'100%', padding:'12px 14px', fontSize:14, border:'2px solid #E2E8F0', borderRadius:10, outline:'none', background:'#F8FAFC', marginBottom:10, boxSizing:'border-box' };
       var linkStyle = { background:'none', border:'none', color:'#4F46E5', fontSize:13, cursor:'pointer', fontWeight:600, padding:0 };
+
+      if (step === 'confirm') return (
+        React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg,#4F46E5,#7C3AED)' } },
+          React.createElement('div', { style:{ background:'#fff', borderRadius:24, padding:'36px 28px', width:'90%', maxWidth:380, textAlign:'center', boxShadow:'0 32px 80px rgba(79,70,229,0.3)' } },
+            React.createElement('div', { style:{ fontSize:48, marginBottom:12 } }, '📧'),
+            React.createElement('div', { style:{ fontSize:20, fontWeight:800, color:'#0F172A', marginBottom:8 } }, 'Confirm your email'),
+            React.createElement('div', { style:{ fontSize:13, color:'#64748B', lineHeight:1.6, marginBottom:16 } },
+              'We sent a link to ', React.createElement('strong', null, email), '. Click it to activate your account.'
+            ),
+            React.createElement('div', { style:{ background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:10, padding:'12px 14px', fontSize:12, color:'#92400E', lineHeight:1.6, marginBottom:20, textAlign:'left' } },
+              React.createElement('strong', null, 'Not receiving emails?'), ' Go to your Supabase dashboard → Authentication → Providers → Email → turn off ', React.createElement('strong', null, '"Confirm email"'), ' so users can sign in instantly without verification.'
+            ),
+            React.createElement('button', { onClick: function(){ setStep('auth'); setMode('login'); setError(''); }, style: btnStyle }, 'Back to sign in'),
+            React.createElement('div', { style:{ marginTop:12, fontSize:12, color:'#94A3B8' } },
+              'Already confirmed? ', React.createElement('span', { onClick: function(){ setStep('auth'); setMode('login'); }, style:{ color:'#4F46E5', cursor:'pointer', fontWeight:600 } }, 'Sign in here')
+            )
+          )
+        )
+      );
 
       if (step === 'family') return (
         React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'linear-gradient(135deg,#4F46E5,#7C3AED)' } },
@@ -17444,16 +17481,41 @@ function FamilyApp() {
           if (!session) { setAuthChecked(true); return; }
           // Get profile + family
           var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
-          if (!prof.data || !prof.data.family_id) { setAuthChecked(true); return; }
+          if (!prof.data || !prof.data.family_id) {
+            // Logged in but no family yet - show family setup screen
+            setAuthChecked(true);
+            setAuthRole('__needs_family__');
+            return;
+          }
           setAuthRole(prof.data.role || 'member');
           setFamilyId(prof.data.family_id);
           setAuthChecked(true);
           loadFamilyData(prof.data.family_id);
         });
 
-        // Listen for auth changes (login/logout)
+        // Listen for auth changes (login / email-confirm callback / logout)
         var { data: listener } = sb.auth.onAuthStateChange(async function(event, session) {
-          if (event === 'SIGNED_OUT') { setAuthRole(null); setFamilyId(null); setData(null); return; }
+          if (event === 'SIGNED_OUT') {
+            setAuthRole(null); setFamilyId(null); setData(null);
+          } else if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+            // Small delay to let the handle_new_user trigger run first
+            await new Promise(function(r){ setTimeout(r, 500); });
+            var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
+            if (!prof.data) {
+              // Profile row doesn't exist yet — wait a bit longer and retry once
+              await new Promise(function(r){ setTimeout(r, 1500); });
+              prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
+            }
+            if (prof.data && prof.data.family_id) {
+              setAuthRole(prof.data.role || 'member');
+              setFamilyId(prof.data.family_id);
+              setAuthChecked(true);
+              loadFamilyData(prof.data.family_id);
+            } else {
+              setAuthChecked(true);
+              setAuthRole('__needs_family__');
+            }
+          }
         });
         return function() { listener && listener.subscription && listener.subscription.unsubscribe(); };
       }, []);
@@ -17619,7 +17681,7 @@ function FamilyApp() {
         React.createElement('div', { style:{ fontSize:48 } }, '🏡'),
         React.createElement('div', { style:{ fontSize:16, color:'#4F46E5', fontWeight:600 } }, 'Loading…')
       );
-      if (!authRole) return React.createElement(AuthScreen, { onAuth: function(role, fid) { setAuthRole(role); setFamilyId(fid); loadFamilyData(fid); } });
+      if (!authRole || authRole === '__needs_family__') return React.createElement(AuthScreen, { onAuth: function(role, fid) { setAuthRole(role); setFamilyId(fid); if (fid) loadFamilyData(fid); }, startAtFamily: authRole === '__needs_family__' });
 
       if (!data) return (
         React.createElement('div', { style: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#F9F6F0", gap:16 },}
