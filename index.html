@@ -17443,6 +17443,26 @@ exports.version = "19.2.4";
       );
     }
 
+    function LoadingScreen() {
+      const [elapsed, setElapsed] = useState(0);
+      useEffect(function() {
+        var t = setInterval(function() { setElapsed(function(n){ return n+1; }); }, 1000);
+        return function(){ clearInterval(t); };
+      }, []);
+      return (
+        React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#F0F4FF', flexDirection:'column', gap:16 } },
+          React.createElement('div', { style:{ fontSize:48 } }, '🏡'),
+          React.createElement('div', { style:{ fontSize:16, color:'#4F46E5', fontWeight:600 } }, 'Loading…'),
+          elapsed >= 4 && React.createElement('div', { style:{ fontSize:13, color:'#64748B', textAlign:'center', maxWidth:280, lineHeight:1.6 } },
+            'Taking longer than expected. ', React.createElement('span', { onClick: function(){ window.location.reload(); }, style:{ color:'#4F46E5', cursor:'pointer', fontWeight:600 } }, 'Tap to reload')
+          ),
+          elapsed >= 4 && React.createElement('div', { style:{ fontSize:11, color:'#94A3B8', textAlign:'center', maxWidth:280 } },
+            'Check your internet connection or verify your Supabase URL is correct'
+          )
+        )
+      );
+    }
+
 function FamilyApp() {
       // ── ALL HOOKS MUST BE DECLARED FIRST — no early returns before this block ──
       const [authRole, setAuthRole] = useState(null);
@@ -17467,7 +17487,6 @@ function FamilyApp() {
       useEffect(() => {
         var sb = getSupabase();
         if (!sb) {
-          // Offline mode — use cache
           setAuthChecked(true);
           var cached = loadFromCache();
           if (cached && cached.members) { setData(cached); setSyncStatus('offline'); }
@@ -17475,22 +17494,36 @@ function FamilyApp() {
           return;
         }
 
-        // Check existing session first
-        sb.auth.getSession().then(async function(res) {
-          var session = res.data && res.data.session;
-          if (!session) { setAuthChecked(true); return; }
-          // Get profile + family
-          var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
-          if (!prof.data || !prof.data.family_id) {
-            // Logged in but no family yet - show family setup screen
-            setAuthChecked(true);
-            setAuthRole('__needs_family__');
-            return;
-          }
-          setAuthRole(prof.data.role || 'member');
-          setFamilyId(prof.data.family_id);
+        // Hard timeout — never leave user stuck on loading screen
+        var timeout = setTimeout(function() {
+          console.warn('[TFH] Auth check timed out — showing login');
           setAuthChecked(true);
-          loadFamilyData(prof.data.family_id);
+        }, 5000);
+
+        // Check existing session
+        sb.auth.getSession().then(async function(res) {
+          clearTimeout(timeout);
+          try {
+            var session = res.data && res.data.session;
+            if (!session) { setAuthChecked(true); return; }
+            var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
+            if (!prof.data || !prof.data.family_id) {
+              setAuthChecked(true);
+              setAuthRole('__needs_family__');
+              return;
+            }
+            setAuthRole(prof.data.role || 'member');
+            setFamilyId(prof.data.family_id);
+            setAuthChecked(true);
+            loadFamilyData(prof.data.family_id);
+          } catch(e) {
+            console.error('[TFH] Auth check error:', e);
+            setAuthChecked(true);
+          }
+        }).catch(function(e) {
+          clearTimeout(timeout);
+          console.error('[TFH] getSession failed:', e);
+          setAuthChecked(true);
         });
 
         // Listen for auth changes (login / email-confirm callback / logout)
@@ -17677,10 +17710,7 @@ function FamilyApp() {
 
       // ── LOADING SCREEN ───────────────────────────────────────────
       // ── CONDITIONAL RENDERS (after all hooks) ───────────────────
-      if (!authChecked) return React.createElement('div', { style:{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#F0F4FF', flexDirection:'column', gap:16 } },
-        React.createElement('div', { style:{ fontSize:48 } }, '🏡'),
-        React.createElement('div', { style:{ fontSize:16, color:'#4F46E5', fontWeight:600 } }, 'Loading…')
-      );
+      if (!authChecked) return React.createElement(LoadingScreen, null);
       if (!authRole || authRole === '__needs_family__') return React.createElement(AuthScreen, { onAuth: function(role, fid) { setAuthRole(role); setFamilyId(fid); if (fid) loadFamilyData(fid); }, startAtFamily: authRole === '__needs_family__' });
 
       if (!data) return (
