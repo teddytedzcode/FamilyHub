@@ -17308,14 +17308,21 @@ exports.version = "19.2.4";
 
       var doLogin = async function() {
         setLoading(true); setError('');
-        var res = await sb.auth.signInWithPassword({ email: email.trim(), password });
-        if (res.error) { setError(res.error.message); setLoading(false); return; }
-        // Check if they have a family already
-        var prof = await sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single();
-        if (prof.data && prof.data.family_id) {
-          onAuth(prof.data.role || 'member', prof.data.family_id);
-        } else {
-          setStep('family'); setLoading(false);
+        try {
+          var res = await Promise.race([
+            sb.auth.signInWithPassword({ email: email.trim(), password }),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out. Check your internet connection.'));}, 8000); })
+          ]);
+          if (res.error) { setError(res.error.message); setLoading(false); return; }
+          var prof = await sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single();
+          if (prof.data && prof.data.family_id) {
+            onAuth(prof.data.role || 'member', prof.data.family_id);
+          } else {
+            setStep('family'); setLoading(false);
+          }
+        } catch(e) {
+          setError(e.message || 'Sign in failed. Please try again.');
+          setLoading(false);
         }
       };
 
@@ -17323,41 +17330,58 @@ exports.version = "19.2.4";
         if (!name.trim()) { setError('Please enter your name'); return; }
         if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
         setLoading(true); setError('');
-        var res = await sb.auth.signUp({ email: email.trim(), password, options: { data: { display_name: name.trim() } } });
-        if (res.error) { setError(res.error.message); setLoading(false); return; }
-        // If Supabase returns a session immediately (email confirm disabled) → go straight to family setup
-        if (res.data && res.data.session) {
-          setStep('family'); setLoading(false);
-          return;
-        }
-        // If user object exists but no session → email confirmation is ON in Supabase
-        // Show clear instructions
-        if (res.data && res.data.user && !res.data.session) {
-          // Check if it's a duplicate (identities array is empty for existing unconfirmed users)
-          if (res.data.user.identities && res.data.user.identities.length === 0) {
-            setError('An account with this email already exists. Try signing in instead.');
-            setLoading(false);
-            return;
+        try {
+          var res = await Promise.race([
+            sb.auth.signUp({ email: email.trim(), password, options: { data: { display_name: name.trim() } } }),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out. Check your internet connection.'));}, 8000); })
+          ]);
+          if (res.error) { setError(res.error.message); setLoading(false); return; }
+          if (res.data && res.data.session) {
+            setStep('family'); setLoading(false); return;
           }
-          setStep('confirm'); setLoading(false);
-          return;
+          if (res.data && res.data.user && !res.data.session) {
+            if (res.data.user.identities && res.data.user.identities.length === 0) {
+              setError('An account with this email already exists. Try signing in instead.');
+              setLoading(false); return;
+            }
+            setStep('confirm'); setLoading(false); return;
+          }
+          setError('Something went wrong. Please try again.'); setLoading(false);
+        } catch(e) {
+          setError(e.message || 'Sign up failed. Please try again.');
+          setLoading(false);
         }
-        setError('Something went wrong. Please try again.'); setLoading(false);
       };
 
       var doCreateFamily = async function() {
         setLoading(true); setError('');
-        var res = await sb.rpc('create_family', { family_name: familyName.trim() || 'My Family' });
-        if (res.error) { setError(res.error.message); setLoading(false); return; }
-        onAuth('admin', res.data);
+        try {
+          var res = await Promise.race([
+            sb.rpc('create_family', { family_name: familyName.trim() || 'My Family' }),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out.'));}, 8000); })
+          ]);
+          if (res.error) { setError(res.error.message); setLoading(false); return; }
+          onAuth('admin', res.data);
+        } catch(e) {
+          setError(e.message || 'Failed to create family. Please try again.');
+          setLoading(false);
+        }
       };
 
       var doJoinFamily = async function() {
         if (!inviteCode.trim()) { setError('Enter invite code'); return; }
         setLoading(true); setError('');
-        var res = await sb.rpc('join_family_by_code', { code: inviteCode.trim().toUpperCase() });
-        if (res.error) { setError('Invalid invite code. Ask your family admin.'); setLoading(false); return; }
-        onAuth('member', res.data);
+        try {
+          var res = await Promise.race([
+            sb.rpc('join_family_by_code', { code: inviteCode.trim().toUpperCase() }),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out.'));}, 8000); })
+          ]);
+          if (res.error) { setError('Invalid invite code. Ask your family admin.'); setLoading(false); return; }
+          onAuth('member', res.data);
+        } catch(e) {
+          setError(e.message || 'Failed to join family. Please try again.');
+          setLoading(false);
+        }
       };
 
       var btnStyle = { width:'100%', padding:'13px 0', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor:'pointer', marginTop:8 };
