@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="Teddy Family Hub" />
   <title>🏡 Teddy Family Hub</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     html,body,#root{margin:0;padding:0;min-height:100%;}
     body{font-family:'Plus Jakarta Sans','DM Sans',sans-serif;background:#F0F4FF;}
@@ -17309,18 +17310,26 @@ exports.version = "19.2.4";
       var doLogin = async function() {
         setLoading(true); setError('');
         try {
+          console.log('[TFH] Starting login, supabase available:', !!getSupabase());
           var res = await Promise.race([
             sb.auth.signInWithPassword({ email: email.trim(), password }),
             new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out. Check your internet connection.'));}, 8000); })
           ]);
+          console.log('[TFH] signInWithPassword result:', res.error ? 'error: ' + res.error.message : 'ok');
           if (res.error) { setError(res.error.message); setLoading(false); return; }
-          var prof = await sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single();
+          console.log('[TFH] Fetching profile for user:', res.data.user.id);
+          var prof = await Promise.race([
+            sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single(),
+            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Profile fetch timed out'));}, 8000); })
+          ]);
+          console.log('[TFH] Profile result:', prof.data ? JSON.stringify(prof.data) : 'null, error: ' + (prof.error && prof.error.message));
           if (prof.data && prof.data.family_id) {
             onAuth(prof.data.role || 'member', prof.data.family_id);
           } else {
             setStep('family'); setLoading(false);
           }
         } catch(e) {
+          console.error('[TFH] Login error:', e);
           setError(e.message || 'Sign in failed. Please try again.');
           setLoading(false);
         }
@@ -19593,20 +19602,9 @@ function EditTransactionModal({ tx, data, close, save }) {
       }
     }
 
-    var done = false;
-    function go() {
-      if (!done) {
-        done = true;
-        console.log('[TFH] go() called, supabase available:', typeof window.supabase !== "undefined");
-        launch();
-      }
-    }
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js';
-    s.onload = function() { console.log('[TFH] Supabase CDN loaded'); go(); };
-    s.onerror = function() { console.log('[TFH] Supabase CDN failed - going offline'); go(); };
-    document.head.appendChild(s);
-    setTimeout(function() { console.log('[TFH] Timeout fallback'); go(); }, 5000);
+    // Supabase loaded in <head> — launch immediately
+    console.log('[TFH] Launching, supabase available:', typeof window.supabase !== "undefined");
+    launch();
   })();
   </script>
 </body>
