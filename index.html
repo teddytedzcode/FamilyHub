@@ -17579,13 +17579,16 @@ function FamilyApp() {
 
       async function loadFamilyData(fid) {
         setSyncStatus('loading');
+        // Always show something immediately — never leave data as null
         var cached = loadFromCache();
-        if (cached && cached.members) { setData(cached); setSyncStatus('offline'); }
-        if (!ONLINE_MODE()) return;
+        var blank = { members:[], tasks:[], events:[], transactions:[], recurring:[], notes:[], routines:[], recurringApplied:[] };
+        setData(cached && cached.members ? cached : blank);
+        setSyncStatus('offline');
+        if (!ONLINE_MODE() || !fid) return;
         try {
           var rows = await Promise.race([
             dbLoad(fid),
-            new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); })
+            new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 10000); })
           ]);
           if (rows) {
             var recurringApplied = await dbLoadAppState('recurringApplied', fid) || [];
@@ -17607,8 +17610,8 @@ function FamilyApp() {
           }
         } catch(e) {
           console.warn('[TFH] Load failed:', e.message);
-          if (!cached) setData({ members:[], tasks:[], events:[], transactions:[], recurring:[], notes:[], routines:[], recurringApplied:[] });
           setSyncStatus('offline');
+          // data already set above — never blank
         }
       }
 
@@ -17735,7 +17738,13 @@ function FamilyApp() {
       // ── LOADING SCREEN ───────────────────────────────────────────
       // ── CONDITIONAL RENDERS (after all hooks) ───────────────────
       if (!authChecked) return React.createElement(LoadingScreen, null);
-      if (!authRole || authRole === '__needs_family__') return React.createElement(AuthScreen, { onAuth: function(role, fid) { setAuthRole(role); setFamilyId(fid); if (fid) loadFamilyData(fid); }, startAtFamily: authRole === '__needs_family__' });
+      if (!authRole || authRole === '__needs_family__') return React.createElement(AuthScreen, { onAuth: function(role, fid) {
+        setAuthRole(role);
+        setFamilyId(fid);
+        // Set empty data immediately so screen never goes blank while loading
+        setData({ members:[], tasks:[], events:[], transactions:[], recurring:[], notes:[], routines:[], recurringApplied:[] });
+        if (fid) loadFamilyData(fid);
+      }, startAtFamily: authRole === '__needs_family__' });
 
       if (!data) return (
         React.createElement('div', { style: { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#F9F6F0", gap:16 },}
