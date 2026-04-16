@@ -17220,33 +17220,152 @@ exports.version = "19.2.4";
     // Edge Function URL for AI (no key on client)
     const AI_FUNCTION_URL = SUPABASE_URL + '/functions/v1/ai-parse';
 
-    var _sb = null;
-    function getSupabase() {
-      if (!_sb && typeof window.supabase !== 'undefined' && window.supabase.createClient) {
-        _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      }
-      return _sb;
+    // ── RAW FETCH API — bypasses supabase-js which SES lockdown breaks ──
+    var _authToken = null;  // current user's JWT access token
+    var _refreshToken = null;
+    var _currentUser = null;
+
+    function ONLINE_MODE() { return true; }
+
+    // Auth headers for REST calls
+    function authHeaders(useServiceKey) {
+      var token = useServiceKey ? SUPABASE_KEY : (_authToken || SUPABASE_KEY);
+      return {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      };
     }
-    function ONLINE_MODE() { return !!getSupabase(); }
+
+    // Raw fetch with timeout
+    async function sbFetch(path, opts, ms) {
+      ms = ms || 10000;
+      return Promise.race([
+        fetch(SUPABASE_URL + path, opts),
+        new Promise(function(_, r){ setTimeout(function(){ r(new Error('timeout')); }, ms); })
+      ]);
+    }
+
+    // Persist session to localStorage
+    function saveSession(access, refresh, user) {
+      _authToken = access; _refreshToken = refresh; _currentUser = user;
+      try { localStorage.setItem('tfh_session_v2', JSON.stringify({ access: access, refresh: refresh, user: user, ts: Date.now() })); } catch(e) {}
+    }
+    function clearSession() {
+      _authToken = null; _refreshToken = null; _currentUser = null;
+      try { localStorage.removeItem('tfh_session_v2'); } catch(e) {}
+    }
+    function loadSession() {
+      try {
+        var s = localStorage.getItem('tfh_session_v2');
+        if (!s) return null;
+        var sess = JSON.parse(s);
+        // Sessions expire after 1 hour — refresh token lasts longer but we'll just re-login
+        if (Date.now() - sess.ts > 55 * 60 * 1000) return null;
+        _authToken = sess.access; _refreshToken = sess.refresh; _currentUser = sess.user;
+        return sess;
+      } catch(e) { return null; }
+    }
+
+    // ── AUTH HELPERS ────────────────────────────────────────────────
+    var sbAuth = {
+      signUp: async function(email, password, displayName) {
+        var r = await sbFetch('/auth/v1/signup', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, password: password, data: { display_name: displayName } })
+        });
+        var body = await r.json();
+        if (body.access_token) { saveSession(body.access_token, body.refresh_token, body.user); }
+        return { data: body, error: body.error ? { message: body.msg || body.error_description || body.error } : null };
+      },
+      signIn: async function(email, password) {
+        var r = await sbFetch('/auth/v1/token?grant_type=password', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, password: password })
+        });
+        var body = await r.json();
+        if (body.access_token) { saveSession(body.access_token, body.refresh_token, body.user); }
+        var errMsg = body.error_description || body.msg || body.error;
+        return { data: body.access_token ? { user: body.user, session: body } : null, error: errMsg ? { message: errMsg } : null };
+      },
+      signOut: async function() {
+        if (_authToken) {
+          try { await sbFetch('/auth/v1/logout', { method: 'POST', headers: authHeaders() }); } catch(e) {}
+        }
+        clearSession();
+      },
+      getSession: function() {
+        var sess = loadSession();
+        return sess ? { data: { session: { access_token: sess.access, user: sess.user } } } : { data: { session: null } };
+      }
+    };
+
+    // ── DATABASE HELPERS ─────────────────────────────────────────────
+    async function dbQuery(table, params) {
+      // params: { eq: {col:val}, select: 'cols', limit: n }
+      var qs = Object.entries(params.eq || {}).map(function(e){ return e[0] + '=eq.' + encodeURIComponent(e[1]); }).join('&');
+      var sel = params.select ? 'select=' + params.select : 'select=*';
+      var lim = params.limit ? '&limit=' + params.limit : '';
+      var r = await sbFetch('/rest/v1/' + table + '?' + sel + (qs ? '&' + qs : '') + lim, { headers: authHeaders() });
+      var body = await r.json();
+      return { data: Array.isArray(body) ? body : [], error: r.ok ? null : body };
+    }
+    async function dbUpsert(table, rows) {
+      var r = await sbFetch('/rest/v1/' + table, {
+        method: 'POST',
+        headers: Object.assign({}, authHeaders(), { 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+        body: JSON.stringify(Array.isArray(rows) ? rows : [rows])
+      });
+      return { error: r.ok ? null : await r.json() };
+    }
+    async function dbDelete(table, id, familyId) {
+      var r = await sbFetch('/rest/v1/' + table + '?id=eq.' + encodeURIComponent(id) + '&family_id=eq.' + encodeURIComponent(familyId), {
+        method: 'DELETE', headers: authHeaders()
+      });
+      return { error: r.ok ? null : await r.json() };
+    }
+    async function rpc(fn, params) {
+      var r = await sbFetch('/rest/v1/rpc/' + fn, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(params || {})
+      });
+      var body = await r.json();
+      return { data: r.ok ? body : null, error: r.ok ? null : { message: body.message || body.hint || JSON.stringify(body) } };
+    }
+
+    // Compatibility shim so existing code that calls getSupabase() still works
+    // for realtime only — everything else now uses raw fetch above
+    function getSupabase() {
+      if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
+        if (!window._sbClient) {
+          window._sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
+        return window._sbClient;
+      }
+      return null;
+    }
 
     // ── DB HELPERS ───────────────────────────────────────────────────
     function rowsToArray(rows) { return (rows || []).map(function(r){ return r.data; }).filter(Boolean); }
 
     async function getFamilyId() {
-      var sb = getSupabase(); if (!sb) return null;
-      var user = (await sb.auth.getUser()).data.user;
-      if (!user) return null;
-      var res = await sb.from('profiles').select('family_id').eq('id', user.id).single();
-      return res.data && res.data.family_id;
+      var sess = sbAuth.getSession();
+      if (!sess.data.session) return null;
+      var res = await dbQuery('profiles', { select: 'family_id', eq: { id: sess.data.session.user.id }, limit: 1 });
+      return res.data && res.data[0] && res.data[0].family_id;
     }
 
     async function dbLoad(familyId) {
-      var sb = getSupabase(); if (!sb || !familyId) return null;
+      if (!familyId) return null;
       try {
         var TABLES = ['members','tasks','events','transactions','recurring','notes','routines'];
         var results = {};
         await Promise.all(TABLES.map(async function(t) {
-          var res = await sb.from(t).select('*').eq('family_id', familyId);
+          var res = await dbQuery(t, { eq: { family_id: familyId } });
           if (!res.error) results[t] = res.data || [];
         }));
         return results;
@@ -17254,39 +17373,29 @@ exports.version = "19.2.4";
     }
 
     async function dbSave(table, items, familyId) {
-      var sb = getSupabase(); if (!sb || !familyId) return;
+      if (!familyId) return;
       try {
         var rows = Array.isArray(items)
           ? items.map(function(item){ return { id: String(item.id), family_id: familyId, data: item }; })
           : [{ id: String(items.key || 'state'), family_id: familyId, data: items }];
-        var res = await sb.from(table).upsert(rows, { onConflict: 'id,family_id' });
-        if (res.error) console.error('Save error', table, res.error.message);
+        var res = await dbUpsert(table, rows);
+        if (res.error) console.error('Save error', table, JSON.stringify(res.error));
       } catch(e) { console.warn('dbSave skipped:', e && e.message); }
     }
 
-    async function dbDelete(table, id, familyId) {
-      var sb = getSupabase(); if (!sb || !familyId) return;
-      try {
-        var res = await sb.from(table).delete().eq('id', String(id)).eq('family_id', familyId);
-        if (res.error) console.error('Delete error', table, res.error.message);
-      } catch(e) { console.warn('dbDelete skipped:', e && e.message); }
-    }
-
     async function dbSaveAppState(key, value, familyId) {
-      var sb = getSupabase(); if (!sb) return;
       var fid = familyId || await getFamilyId(); if (!fid) return;
       try {
-        var res = await sb.from('app_state').upsert({ key: key, family_id: fid, value: value }, { onConflict: 'key,family_id' });
-        if (res.error) console.error('AppState error', res.error.message);
+        var res = await dbUpsert('app_state', { key: key, family_id: fid, value: value });
+        if (res.error) console.error('AppState error', JSON.stringify(res.error));
       } catch(e) { console.warn('dbSaveAppState skipped:', e && e.message); }
     }
 
     async function dbLoadAppState(key, familyId) {
-      var sb = getSupabase(); if (!sb) return null;
       var fid = familyId || await getFamilyId(); if (!fid) return null;
-      var res = await sb.from('app_state').select('*').eq('key', key).eq('family_id', fid).single();
-      if (res.error || !res.data) return null;
-      return res.data.value;
+      var res = await dbQuery('app_state', { eq: { key: key, family_id: fid }, limit: 1 });
+      if (res.error || !res.data || !res.data[0]) return null;
+      return res.data[0].value;
     }
 
     // ── LOCAL CACHE ──────────────────────────────────────────────────
@@ -17314,26 +17423,16 @@ exports.version = "19.2.4";
       var doLogin = async function() {
         setLoading(true); setError('');
         try {
-          console.log('[TFH] Starting login, supabase available:', !!getSupabase());
-          var res = await Promise.race([
-            sb.auth.signInWithPassword({ email: email.trim(), password }),
-            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out. Check your internet connection.'));}, 8000); })
-          ]);
-          console.log('[TFH] signInWithPassword result:', res.error ? 'error: ' + res.error.message : 'ok');
+          var res = await sbAuth.signIn(email.trim(), password);
           if (res.error) { setError(res.error.message); setLoading(false); return; }
-          console.log('[TFH] Fetching profile for user:', res.data.user.id);
-          var prof = await Promise.race([
-            sb.from('profiles').select('family_id,role').eq('id', res.data.user.id).single(),
-            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Profile fetch timed out'));}, 8000); })
-          ]);
-          console.log('[TFH] Profile result:', prof.data ? JSON.stringify(prof.data) : 'null, error: ' + (prof.error && prof.error.message));
-          if (prof.data && prof.data.family_id) {
-            onAuth(prof.data.role || 'member', prof.data.family_id);
+          var profRes = await dbQuery('profiles', { select: 'family_id,role', eq: { id: res.data.user.id }, limit: 1 });
+          var prof = profRes.data && profRes.data[0];
+          if (prof && prof.family_id) {
+            onAuth(prof.role || 'member', prof.family_id);
           } else {
             setStep('family'); setLoading(false);
           }
         } catch(e) {
-          console.error('[TFH] Login error:', e);
           setError(e.message || 'Sign in failed. Please try again.');
           setLoading(false);
         }
@@ -17344,16 +17443,13 @@ exports.version = "19.2.4";
         if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
         setLoading(true); setError('');
         try {
-          var res = await Promise.race([
-            sb.auth.signUp({ email: email.trim(), password, options: { data: { display_name: name.trim() } } }),
-            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out. Check your internet connection.'));}, 8000); })
-          ]);
+          var res = await sbAuth.signUp(email.trim(), password, name.trim());
           if (res.error) { setError(res.error.message); setLoading(false); return; }
-          if (res.data && res.data.session) {
+          if (res.data && res.data.access_token) {
             setStep('family'); setLoading(false); return;
           }
-          if (res.data && res.data.user && !res.data.session) {
-            if (res.data.user.identities && res.data.user.identities.length === 0) {
+          if (res.data && res.data.id && !res.data.access_token) {
+            if (res.data.identities && res.data.identities.length === 0) {
               setError('An account with this email already exists. Try signing in instead.');
               setLoading(false); return;
             }
@@ -17369,10 +17465,7 @@ exports.version = "19.2.4";
       var doCreateFamily = async function() {
         setLoading(true); setError('');
         try {
-          var res = await Promise.race([
-            sb.rpc('create_family', { family_name: familyName.trim() || 'My Family' }),
-            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out.'));}, 8000); })
-          ]);
+          var res = await rpc('create_family', { family_name: familyName.trim() || 'My Family' });
           if (res.error) { setError(res.error.message); setLoading(false); return; }
           onAuth('admin', res.data);
         } catch(e) {
@@ -17385,10 +17478,7 @@ exports.version = "19.2.4";
         if (!inviteCode.trim()) { setError('Enter invite code'); return; }
         setLoading(true); setError('');
         try {
-          var res = await Promise.race([
-            sb.rpc('join_family_by_code', { code: inviteCode.trim().toUpperCase() }),
-            new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('Request timed out.'));}, 8000); })
-          ]);
+          var res = await rpc('join_family_by_code', { code: inviteCode.trim().toUpperCase() });
           if (res.error) { setError('Invalid invite code. Ask your family admin.'); setLoading(false); return; }
           onAuth('member', res.data);
         } catch(e) {
@@ -17463,11 +17553,10 @@ exports.version = "19.2.4";
 
     function InviteCodePanel({ familyId }) {
       const [code, setCode] = useState('');
-      const sb = getSupabase();
       useEffect(function() {
         if (!familyId) return;
-        sb.from('families').select('invite_code,name').eq('id', familyId).single().then(function(res) {
-          if (res.data) setCode(res.data.invite_code);
+        dbQuery('families', { select: 'invite_code,name', eq: { id: familyId }, limit: 1 }).then(function(res) {
+          if (res.data && res.data[0]) setCode(res.data[0].invite_code);
         });
       }, [familyId]);
       if (!code) return null;
@@ -17537,57 +17626,29 @@ function FamilyApp() {
           setAuthChecked(true);
         }, 5000);
 
-        // Check existing session
-        sb.auth.getSession().then(async function(res) {
+        // Check existing session using stored token
+        (async function() {
           clearTimeout(timeout);
           try {
-            var session = res.data && res.data.session;
+            var sessResult = sbAuth.getSession();
+            var session = sessResult.data && sessResult.data.session;
             if (!session) { setAuthChecked(true); return; }
-            var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
-            if (!prof.data || !prof.data.family_id) {
-              setAuthChecked(true);
-              setAuthRole('__needs_family__');
-              return;
+            var profRes = await dbQuery('profiles', { select: 'family_id,role', eq: { id: session.user.id }, limit: 1 });
+            var prof = profRes.data && profRes.data[0];
+            if (!prof || !prof.family_id) {
+              setAuthChecked(true); setAuthRole('__needs_family__'); return;
             }
-            setAuthRole(prof.data.role || 'member');
-            setFamilyId(prof.data.family_id);
+            setAuthRole(prof.role || 'member');
+            setFamilyId(prof.family_id);
             setAuthChecked(true);
-            loadFamilyData(prof.data.family_id);
+            loadFamilyData(prof.family_id);
           } catch(e) {
             console.error('[TFH] Auth check error:', e);
             setAuthChecked(true);
           }
-        }).catch(function(e) {
-          clearTimeout(timeout);
-          console.error('[TFH] getSession failed:', e);
-          setAuthChecked(true);
-        });
+        })();
 
-        // Listen for auth changes (login / email-confirm callback / logout)
-        var { data: listener } = sb.auth.onAuthStateChange(async function(event, session) {
-          if (event === 'SIGNED_OUT') {
-            setAuthRole(null); setFamilyId(null); setData(null);
-          } else if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-            // Small delay to let the handle_new_user trigger run first
-            await new Promise(function(r){ setTimeout(r, 500); });
-            var prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
-            if (!prof.data) {
-              // Profile row doesn't exist yet — wait a bit longer and retry once
-              await new Promise(function(r){ setTimeout(r, 1500); });
-              prof = await sb.from('profiles').select('family_id,role').eq('id', session.user.id).single();
-            }
-            if (prof.data && prof.data.family_id) {
-              setAuthRole(prof.data.role || 'member');
-              setFamilyId(prof.data.family_id);
-              setAuthChecked(true);
-              loadFamilyData(prof.data.family_id);
-            } else {
-              setAuthChecked(true);
-              setAuthRole('__needs_family__');
-            }
-          }
-        });
-        return function() { listener && listener.subscription && listener.subscription.unsubscribe(); };
+        // No onAuthStateChange needed — we use stored session tokens directly
       }, []);
 
       async function loadFamilyData(fid) {
@@ -17811,8 +17872,7 @@ function FamilyApp() {
         if (!aiInput.trim()) return;
         setAiLoading(true); setAiError(''); setAiResult(null);
         try {
-          var sb = getSupabase();
-          var session = sb ? (await sb.auth.getSession()).data.session : null;
+          var session = sbAuth.getSession().data.session;
           var res = await fetch(AI_FUNCTION_URL, {
             method: 'POST',
             headers: {
@@ -17907,7 +17967,7 @@ function FamilyApp() {
             , React.createElement('div', { style: { display:"flex", gap:6, alignItems:"center" },}
               , authRole === 'admin' && React.createElement('button', { onClick: function(){ setShowCodes(true); }, title: "Access codes", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:16, cursor:"pointer" } }, "\uD83D\uDD11")
               , authRole === 'admin' && React.createElement(InviteCodePanel, { familyId: familyId })
-              , React.createElement('button', { onClick: async function(){ var sb = getSupabase(); if(sb) await sb.auth.signOut(); setAuthRole(null); setFamilyId(null); setData(null); }, title: "Log out", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:13, cursor:"pointer" } }, "\u21A9")
+              , React.createElement('button', { onClick: async function(){ await sbAuth.signOut(); setAuthRole(null); setFamilyId(null); setData(null); }, title: "Log out", style: { background:"rgba(255,255,255,0.2)", border:"none", borderRadius:8, padding:"6px 10px", color:"#fff", fontSize:13, cursor:"pointer" } }, "\u21A9")
               , data && data.members.map(m => (
                 React.createElement('div', { key: m.id, title: m.name, style: { width:32, height:32, borderRadius:"50%", background:m.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, border:"2px solid rgba(255,255,255,0.4)", overflow:"hidden", flexShrink:0 },}
                   , m.photo ? React.createElement('img', { src: m.photo, alt: m.name, style: { width:"100%", height:"100%", objectFit:"cover" },} ) : m.emoji
