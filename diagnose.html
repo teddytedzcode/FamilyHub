@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supabase Diagnostic v3</title>
+  <style>
+    body{font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto;background:#f8fafc;}
+    h2{color:#1e293b;margin-bottom:4px;}
+    .sub{color:#64748b;font-size:13px;margin-bottom:16px;}
+    .test{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:8px;}
+    .test-name{font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;}
+    .result{font-size:12px;font-family:monospace;padding:8px 10px;border-radius:6px;word-break:break-all;line-height:1.6;white-space:pre-wrap;}
+    .ok{background:#f0fdf4;color:#166534;}
+    .fail{background:#fef2f2;color:#991b1b;}
+    .warn{background:#fffbeb;color:#92400e;}
+    .pend{background:#eff6ff;color:#1e40af;}
+    button{background:#4F46E5;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:20px;width:100%;}
+    .info{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;font-size:12px;color:#1e40af;margin-bottom:16px;line-height:1.6;}
+    input{width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:8px;box-sizing:border-box;}
+    label{font-size:12px;color:#64748b;display:block;margin-bottom:2px;}
+  </style>
+</head>
+<body>
+  <h2>Supabase Diagnostic v3</h2>
+  <div class="sub">Run this from your Vercel URL for accurate CORS results</div>
+
+  <div class="info" id="origin-info">Detecting...</div>
+
+  <div class="test">
+    <div class="test-name">Test login with your account</div>
+    <label>Email</label>
+    <input type="email" id="test-email" placeholder="your@email.com">
+    <label>Password</label>
+    <input type="password" id="test-pass" placeholder="your password">
+  </div>
+
+  <button onclick="runAll()">Run All Tests</button>
+  <div id="tests"></div>
+
+<script>
+const URL2 = 'https://fiajmcqbwjuxypgxmpld.supabase.co';
+const KEY2 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpYWptY3Fid2p1eHlwZ3htcGxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyODU4MjEsImV4cCI6MjA5MTg2MTgyMX0.7zrU9G4hDgsGEMfAw9SL1Ss0_zOUsJ0X9YEw9G3Ytc8';
+
+var origin = window.location.href;
+var isLocal = origin.startsWith('file://');
+document.getElementById('origin-info').textContent =
+  'Running from: ' + origin + '\n' +
+  (isLocal ? 'WARNING: Running locally (file://). CORS results may differ from your Vercel URL. Deploy diagnose.html to Vercel for accurate results.' : 'Running from web — CORS results are accurate.');
+
+function addTest(name, id){
+  var d=document.createElement('div');
+  d.className='test';
+  d.innerHTML='<div class="test-name">'+name+'</div><div class="result pend" id="'+id+'">Running...</div>';
+  document.getElementById('tests').appendChild(d);
+}
+function set(id,cls,msg){ var e=document.getElementById(id); e.className='result '+cls; e.textContent=msg; }
+async function go(url,opts,ms){
+  return Promise.race([
+    fetch(url,opts),
+    new Promise(function(_,r){setTimeout(function(){r(new Error('Timed out after '+ms/1000+'s'));},ms);})
+  ]);
+}
+
+async function runAll(){
+  document.getElementById('tests').innerHTML='';
+
+  addTest('1. Auth health check','t1');
+  try{
+    var r=await go(URL2+'/auth/v1/health',{headers:{apikey:KEY2}},5000);
+    var t=await r.text();
+    set('t1','ok','✓ HTTP '+r.status+' — '+t.slice(0,80));
+  }catch(e){set('t1','fail','✗ '+e.message);}
+
+  addTest('2. Sign in with your credentials','t2');
+  var email=document.getElementById('test-email').value.trim();
+  var pass=document.getElementById('test-pass').value;
+  if(!email||!pass){
+    set('t2','warn','⚠ Enter your email and password above first, then run tests');
+  } else {
+    try{
+      var r=await go(URL2+'/auth/v1/token?grant_type=password',{
+        method:'POST',
+        headers:{apikey:KEY2,'Content-Type':'application/json'},
+        body:JSON.stringify({email:email,password:pass})
+      },8000);
+      var body=await r.json();
+      if(r.ok && body.access_token){
+        set('t2','ok','✓ Login works! Got access token.\n\nIf the app still shows timeout, the issue is the Vercel URL not added to Supabase → Authentication → URL Configuration.');
+      } else if(body.error==='invalid_grant'){
+        set('t2','fail','✗ Wrong email or password, or email not confirmed.\n\nFix: Authentication → Providers → Email → turn off Confirm email');
+      } else if(body.error==='email_not_confirmed'){
+        set('t2','fail','✗ Email not confirmed.\n\nFix: Authentication → Providers → Email → turn OFF "Confirm email" → Save');
+      } else {
+        set('t2','fail','✗ HTTP '+r.status+': '+JSON.stringify(body).slice(0,200));
+      }
+    }catch(e){set('t2','fail','✗ '+e.message+'\n\nThis means CORS is blocking requests from this origin.\nFix: Supabase → Authentication → URL Configuration → add: '+window.location.origin);}
+  }
+
+  addTest('3. profiles table accessible','t3');
+  try{
+    var r=await go(URL2+'/rest/v1/profiles?limit=1',{headers:{apikey:KEY2,Authorization:'Bearer '+KEY2}},5000);
+    set('t3',r.status===200||r.status===401?'ok':'fail',
+      (r.status===200||r.status===401?'✓':'✗')+' HTTP '+r.status+
+      (r.status===404?'\n\nFix: Run schema_part1.sql in Supabase SQL Editor':''));
+  }catch(e){set('t3','fail','✗ '+e.message);}
+
+  addTest('4. Email confirm setting','t4');
+  try{
+    var testEmail='confirmtest'+Date.now()+'@test.com';
+    var r=await go(URL2+'/auth/v1/signup',{
+      method:'POST',
+      headers:{apikey:KEY2,'Content-Type':'application/json'},
+      body:JSON.stringify({email:testEmail,password:'Test1234!'})
+    },8000);
+    var body=await r.json();
+    if(body.access_token||(body.user&&body.user.confirmed_at)){
+      set('t4','ok','✓ Email confirm is OFF — users can sign in immediately after signup');
+    } else if(body.user&&!body.access_token){
+      set('t4','fail','✗ Email confirm is ON — users cannot sign in without confirming email.\n\nFix: Authentication → Providers → Email → turn OFF "Confirm email" → Save');
+    } else {
+      set('t4','warn','⚠ '+JSON.stringify(body).slice(0,150));
+    }
+  }catch(e){set('t4','fail','✗ '+e.message);}
+}
+</script>
+</body>
+</html>
