@@ -17589,6 +17589,23 @@ exports.version = "19.2.4";
       );
     }
 
+    // ── DESIGN TOKENS ────────────────────────────────────────────────
+    var COLORS = {
+      primary: '#4F46E5',
+      soft: '#EEF2FF',
+      bg: '#F0F4FF',
+      card: '#FFFFFF',
+      text: '#0F172A',
+      muted: '#64748B',
+      border: '#E2E8F0',
+      danger: '#EF4444',
+      success: '#10B981',
+      warning: '#F59E0B',
+    };
+    var FONT = {
+      body: "'Plus Jakarta Sans','DM Sans',sans-serif",
+    };
+
 function FamilyApp() {
       // ── ALL HOOKS MUST BE DECLARED FIRST — no early returns before this block ──
       const [authRole, setAuthRole] = useState(null);
