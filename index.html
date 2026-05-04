@@ -17630,15 +17630,34 @@ function FamilyApp() {
           const ukYear = parseInt(todayUK.slice(0,4));
           const ukMonth = parseInt(todayUK.slice(5,7)) - 1;
           const currentYM = ym(ukYear, ukMonth);
+          const activeRecurring = (state.recurring || []).filter(function(r) { return r.active; });
 
-          // Also back-fill April 2026 if not yet applied
-          const BACKFILL_MONTHS = [{ year: 2026, month: 3 }]; // month 3 = April (0-indexed)
+          // Back-fill months where recurring bills are missing from transactions
+          // Ignores the applied marker — uses actual transaction presence as source of truth
+          const BACKFILL_MONTHS = [{ year: 2026, month: 3 }]; // April 2026
           let result = state;
           for (const bm of BACKFILL_MONTHS) {
             const bmYM = ym(bm.year, bm.month);
-            const applied = new Set(result.recurringApplied || []);
-            if (!applied.has(bmYM)) {
-              result = applyRecurringForMonth(result, bm.year, bm.month);
+            // Check if recurring transactions actually exist for this month
+            const txExist = (result.transactions || []).some(function(t) {
+              return t.recurring && t.date && t.date.startsWith(bmYM);
+            });
+            if (!txExist && activeRecurring.length > 0) {
+              // Transactions missing — force add regardless of applied marker
+              const newTx = activeRecurring.map(function(r) {
+                return {
+                  id: 'rec-' + bmYM + '-' + String(r.id),
+                  desc: r.desc, amount: -Math.abs(r.amount), category: r.category,
+                  date: bm.year + '-' + String(bm.month+1).padStart(2,'0') + '-28',
+                  member: r.member, recurring: true,
+                };
+              });
+              const appliedSet = new Set(result.recurringApplied || []);
+              appliedSet.add(bmYM);
+              result = Object.assign({}, result, {
+                transactions: (result.transactions||[]).concat(newTx),
+                recurringApplied: Array.from(appliedSet),
+              });
             }
           }
 
