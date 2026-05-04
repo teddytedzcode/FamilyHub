@@ -17596,35 +17596,59 @@ function FamilyApp() {
       // ── LOAD FROM SUPABASE ON MOUNT ──────────────────────────────
       useEffect(() => {
         // Apply recurring bills to a data state synchronously — used during load
+        // Apply recurring bills for a given YYYY-MM, always on the 28th
+        function applyRecurringForMonth(state, yearNum, monthNum) {
+          const monthYM = ym(yearNum, monthNum);
+          const activeRecurring = (state.recurring || []).filter(function(r) { return r.active; });
+          if (activeRecurring.length === 0) return state;
+          const alreadyAdded = (state.transactions || []).some(function(t) {
+            return t.recurring && t.date && t.date.startsWith(monthYM);
+          });
+          if (alreadyAdded) {
+            const applied = new Set(state.recurringApplied || []);
+            applied.add(monthYM);
+            return Object.assign({}, state, { recurringApplied: Array.from(applied) });
+          }
+          const newTx = activeRecurring.map(function(r) {
+            return {
+              id: 'rec-' + monthYM + '-' + String(r.id),
+              desc: r.desc, amount: -Math.abs(r.amount), category: r.category,
+              date: yearNum + '-' + String(monthNum+1).padStart(2,'0') + '-28',
+              member: r.member, recurring: true,
+            };
+          });
+          const applied = new Set(state.recurringApplied || []);
+          applied.add(monthYM);
+          return Object.assign({}, state, {
+            transactions: (state.transactions||[]).concat(newTx),
+            recurringApplied: Array.from(applied),
+          });
+        }
+
         function applyRecurringBills(state) {
           const todayUK = getUKToday();
           const ukYear = parseInt(todayUK.slice(0,4));
           const ukMonth = parseInt(todayUK.slice(5,7)) - 1;
           const currentYM = ym(ukYear, ukMonth);
-          const applied = new Set(state.recurringApplied || []);
-          if (applied.has(currentYM)) return state;
-          const activeRecurring = (state.recurring || []).filter(function(r) { return r.active; });
-          if (activeRecurring.length === 0) {
-            return Object.assign({}, state, { recurringApplied: (state.recurringApplied||[]).concat([currentYM]) });
+
+          // Also back-fill April 2026 if not yet applied
+          const BACKFILL_MONTHS = [{ year: 2026, month: 3 }]; // month 3 = April (0-indexed)
+          let result = state;
+          for (const bm of BACKFILL_MONTHS) {
+            const bmYM = ym(bm.year, bm.month);
+            const applied = new Set(result.recurringApplied || []);
+            if (!applied.has(bmYM)) {
+              result = applyRecurringForMonth(result, bm.year, bm.month);
+            }
           }
-          const alreadyAdded = (state.transactions || []).some(function(t) {
-            return t.recurring && t.date && t.date.startsWith(currentYM);
-          });
-          if (alreadyAdded) {
-            return Object.assign({}, state, { recurringApplied: (state.recurringApplied||[]).concat([currentYM]) });
+
+          // Apply current month if not yet applied
+          const appliedNow = new Set(result.recurringApplied || []);
+          if (!appliedNow.has(currentYM)) {
+            result = applyRecurringForMonth(result, ukYear, ukMonth);
           }
-          const newTx = activeRecurring.map(function(r) {
-            return {
-              id: 'rec-' + currentYM + '-' + String(r.id),
-              desc: r.desc, amount: -Math.abs(r.amount), category: r.category,
-              date: ukYear + '-' + String(ukMonth+1).padStart(2,'0') + '-' + String(r.dayOfMonth).padStart(2,'0'),
-              member: r.member, recurring: true,
-            };
-          });
-          return Object.assign({}, state, {
-            transactions: (state.transactions||[]).concat(newTx),
-            recurringApplied: (state.recurringApplied||[]).concat([currentYM]),
-          });
+
+          return result;
         }
 
         async function load() {
@@ -19454,7 +19478,7 @@ function RecurringTab({ data, setData, setModal }) {
               , React.createElement('div', { style: { flex: 1 },}
                 , React.createElement('div', { style: { fontSize: 14, fontWeight: 600 },}, r.desc)
                 , React.createElement('div', { style: { fontSize: 12, color: COLORS.muted, marginTop: 2 },}
-                  , "Due on the ", React.createElement('strong', null, r.dayOfMonth, ["st","nd","rd"][((r.dayOfMonth+90)%100-10)%10-1]||"th"), " · ", categoryIcons[r.category], " ", r.category
+                  , "Due on the ", React.createElement('strong', null, "28th"), " every month · ", categoryIcons[r.category], " ", r.category
                   , member && React.createElement(React.Fragment, null, " · ", member.emoji, " ", member.name)
                 )
               )
@@ -19485,7 +19509,7 @@ function EditRecurringModal({ data, recurring, close, save }) {
   const [form, setForm] = useState({ ...recurring, amount: String(recurring.amount) });
   const handleSave = () => {
     if (!form.desc.trim() || !form.amount) return;
-    save({ ...form, amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member) });
+    save({ ...form, amount: Number(form.amount), dayOfMonth: 28, member: Number(form.member) });
   };
   return (
     React.createElement(Modal, { title: "✏️ Edit Recurring Expense", close: close, onSave: handleSave,}
@@ -19493,8 +19517,7 @@ function EditRecurringModal({ data, recurring, close, save }) {
       , React.createElement('input', { type: "text", value: form.desc, onChange: e => setForm(f => ({ ...f, desc: e.target.value })), placeholder: "e.g. Spotify",})
       , React.createElement('label', null, "Monthly Amount (£)")
       , React.createElement('input', { type: "number", value: form.amount, onChange: e => setForm(f => ({ ...f, amount: e.target.value })), placeholder: "0.00", min: "0",})
-      , React.createElement('label', null, "Day of Month (1–28)")
-      , React.createElement('input', { type: "number", value: form.dayOfMonth, onChange: e => setForm(f => ({ ...f, dayOfMonth: Math.min(28, Math.max(1, Number(e.target.value))) })), min: "1", max: "28",})
+      , React.createElement('div', { style: { fontSize:13, color:COLORS.muted, marginTop:10, background:COLORS.soft, borderRadius:8, padding:'8px 12px' } }, "📅 All recurring bills are added on the ", React.createElement('strong', null, "28th"), " of each month")
       , React.createElement('label', null, "Category")
       , React.createElement('select', { value: form.category, onChange: e => setForm(f => ({ ...f, category: e.target.value })),}
         , ["utilities","entertainment","groceries","kids","dining","other"].map(c => React.createElement('option', { key: c, value: c,}, categoryIcons[c], " ", c))
@@ -19515,10 +19538,10 @@ function EditRecurringModal({ data, recurring, close, save }) {
 
 function AddRecurringModal({ data, setData, close }) {
   const ICONS = ["🏠","📶","📱","🚗","📺","💊","🏋️","🎵","☕","🐾","📚","⚡"];
-  const [form, setForm] = useState({ desc: "", amount: "", category: "utilities", dayOfMonth: 1, member: _optionalChain([data, 'access', _19 => _19.members, 'access', _20 => _20[0], 'optionalAccess', _21 => _21.id]) || 1, icon: "🏠" });
+  const [form, setForm] = useState({ desc: "", amount: "", category: "utilities", dayOfMonth: 28, member: _optionalChain([data, 'access', _19 => _19.members, 'access', _20 => _20[0], 'optionalAccess', _21 => _21.id]) || 1, icon: "🏠" });
   const save = () => {
     if (!form.desc.trim() || !form.amount) return;
-    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: String(Date.now()), amount: Number(form.amount), dayOfMonth: Number(form.dayOfMonth), member: Number(form.member), active: true }] }), 'recurring');
+    setData(d => ({ ...d, recurring: [...d.recurring, { ...form, id: String(Date.now()), amount: Number(form.amount), dayOfMonth: 28, member: Number(form.member), active: true }] }), 'recurring');
     close();
   };
   return (
@@ -19527,8 +19550,7 @@ function AddRecurringModal({ data, setData, close }) {
       , React.createElement('input', { type: "text", value: form.desc, onChange: e => setForm(f => ({ ...f, desc: e.target.value })), placeholder: "e.g. Spotify" ,} )
       , React.createElement('label', null, "Monthly Amount (£)"  )
       , React.createElement('input', { type: "number", value: form.amount, onChange: e => setForm(f => ({ ...f, amount: e.target.value })), placeholder: "0.00", min: "0",} )
-      , React.createElement('label', null, "Day of Month (1–28)"   )
-      , React.createElement('input', { type: "number", value: form.dayOfMonth, onChange: e => setForm(f => ({ ...f, dayOfMonth: Math.min(28, Math.max(1, Number(e.target.value))) })), min: "1", max: "28",} )
+      , React.createElement('div', { style: { fontSize:13, color:COLORS.muted, marginTop:10, background:COLORS.soft, borderRadius:8, padding:'8px 12px' } }, "📅 All recurring bills are added on the ", React.createElement('strong', null, "28th"), " of each month")
       , React.createElement('label', null, "Category")
       , React.createElement('select', { value: form.category, onChange: e => setForm(f => ({ ...f, category: e.target.value })),}
         , ["utilities","entertainment","groceries","kids","dining","other"].map(c => React.createElement('option', { key: c, value: c,}, categoryIcons[c], " " , c))
