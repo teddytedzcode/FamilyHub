@@ -17672,18 +17672,8 @@ function FamilyApp() {
 
         async function load() {
           setSyncStatus("loading");
-          // Show cache immediately — never block on network
           const cached = loadFromCache();
-          if (cached && cached.members) {
-            // Apply recurring bills to cached data immediately
-            const cachedWithRecurring = applyRecurringBills(cached);
-            setData(cachedWithRecurring);
-            if (cachedWithRecurring.transactions.length !== cached.transactions.length) {
-              saveToCache(cachedWithRecurring);
-            }
-            setSyncStatus("offline");
-          }
-          // Try Supabase with 6s timeout
+          // Try Supabase first — only fall back to cache if it fails/times out
           if (ONLINE_MODE()) {
             try {
               const rows = await Promise.race([
@@ -17707,14 +17697,15 @@ function FamilyApp() {
                     routines: rowsToArray(rows.routines || []),
                     recurringApplied: recurringApplied,
                   };
-                  // Apply recurring bills immediately so balance is correct on first render
+                  // Apply recurring bills so balance is correct on first render
                   const loaded = applyRecurringBills(loadedRaw);
-                  // If bills were applied, persist the new transactions and applied marker
+                  // Persist any newly applied transactions back to Supabase
                   if (loaded.transactions.length !== loadedRaw.transactions.length) {
                     const newTx = loaded.transactions.filter(function(t) { return t.recurring && !loadedRaw.transactions.find(function(x){ return x.id === t.id; }); });
                     if (newTx.length > 0) dbSave('transactions', loaded.transactions);
                     dbSaveAppState('recurringApplied', loaded.recurringApplied);
                   }
+                  // Single setData call — no cache flash, no flicker
                   setData(loaded);
                   saveToCache(loaded);
                   setSyncStatus("ok");
@@ -17746,7 +17737,14 @@ function FamilyApp() {
               console.warn('[TFH] Supabase load failed:', e.message);
             }
           }
-          if (!cached) {
+          // Supabase failed or offline — use cache with recurring applied
+          if (cached && cached.members) {
+            const cachedWithRecurring = applyRecurringBills(cached);
+            setData(cachedWithRecurring);
+            if (cachedWithRecurring.transactions.length !== cached.transactions.length) {
+              saveToCache(cachedWithRecurring);
+            }
+          } else {
             setData({ members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] });
           }
           setSyncStatus("offline");
