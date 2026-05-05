@@ -17255,7 +17255,18 @@ exports.version = "19.2.4";
     }
 
     function rowsToArray(rows) {
-      return (rows || []).map(r => r.data).filter(Boolean);
+      if (!rows || rows.length === 0) return [];
+      return (rows || []).map(function(r) {
+        // Support both {id, data: {...}} format and direct object format
+        if (r && r.data && typeof r.data === 'object') return r.data;
+        if (r && r.id && !r.data) {
+          // Row stored without data wrapper — return the row itself minus supabase internals
+          var obj = {};
+          Object.keys(r).forEach(function(k) { if (k !== 'created_at' && k !== 'updated_at') obj[k] = r[k]; });
+          return obj;
+        }
+        return null;
+      }).filter(Boolean);
     }
 
     async function dbSave(table, items) {
@@ -17680,58 +17691,65 @@ function FamilyApp() {
                 dbLoad(),
                 new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 6000); })
               ]);
-              if (rows && rows.members) {
-                if (rows.members.length > 0) {
-                  const recurringApplied = await dbLoadAppState('recurringApplied') || [];
-                  const remoteBudget = await dbLoadAppState('monthlyBudget');
-                  if (remoteBudget && Number(remoteBudget) > 0) {
-                    try { localStorage.setItem('tfh_budget', String(remoteBudget)); } catch(e) {}
-                  }
-                  const loadedRaw = {
-                    members: rowsToArray(rows.members),
-                    tasks: rowsToArray(rows.tasks || []),
-                    events: rowsToArray(rows.events || []),
-                    transactions: rowsToArray(rows.transactions || []),
-                    recurring: rowsToArray(rows.recurring || []),
-                    notes: rowsToArray(rows.notes || []),
-                    routines: rowsToArray(rows.routines || []),
-                    recurringApplied: recurringApplied,
-                  };
-                  // Apply recurring bills so balance is correct on first render
+              if (rows) {
+                const recurringApplied = await dbLoadAppState('recurringApplied') || [];
+                const remoteBudget = await dbLoadAppState('monthlyBudget');
+                if (remoteBudget && Number(remoteBudget) > 0) {
+                  try { localStorage.setItem('tfh_budget', String(remoteBudget)); } catch(e) {}
+                }
+                const loadedRaw = {
+                  members:      rowsToArray(rows.members      || []),
+                  tasks:        rowsToArray(rows.tasks        || []),
+                  events:       rowsToArray(rows.events       || []),
+                  transactions: rowsToArray(rows.transactions || []),
+                  recurring:    rowsToArray(rows.recurring    || []),
+                  notes:        rowsToArray(rows.notes        || []),
+                  routines:     rowsToArray(rows.routines     || []),
+                  recurringApplied: recurringApplied,
+                };
+
+                console.log('[TFH] Loaded from Supabase:', {
+                  members: loadedRaw.members.length,
+                  transactions: loadedRaw.transactions.length,
+                  recurring: loadedRaw.recurring.length,
+                });
+
+                // If Supabase has members, use it as source of truth
+                if (loadedRaw.members.length > 0) {
                   const loaded = applyRecurringBills(loadedRaw);
-                  // Persist any newly applied transactions back to Supabase
                   if (loaded.transactions.length !== loadedRaw.transactions.length) {
-                    const newTx = loaded.transactions.filter(function(t) { return t.recurring && !loadedRaw.transactions.find(function(x){ return x.id === t.id; }); });
+                    const newTx = loaded.transactions.filter(function(t) {
+                      return t.recurring && !loadedRaw.transactions.find(function(x){ return x.id === t.id; });
+                    });
                     if (newTx.length > 0) dbSave('transactions', loaded.transactions);
                     dbSaveAppState('recurringApplied', loaded.recurringApplied);
                   }
-                  // Single setData call — no cache flash, no flicker
                   setData(loaded);
                   saveToCache(loaded);
                   setSyncStatus("ok");
                   return;
-                } else {
-                  if (cached && cached.members && cached.members.length > 0) {
-                    const cachedWithRecurring = applyRecurringBills(cached);
-                    setData(cachedWithRecurring);
-                    if (cachedWithRecurring.transactions.length !== cached.transactions.length) {
-                      saveToCache(cachedWithRecurring);
-                    }
-                    Object.entries(cachedWithRecurring).forEach(function(entry) {
-                      var key = entry[0]; var val = entry[1];
-                      if (key === 'recurringApplied') { dbSaveAppState('recurringApplied', val); }
-                      else if (Array.isArray(val) && val.length > 0) { dbSave(key, val); }
-                    });
-                    setSyncStatus("ok");
-                    return;
-                  }
-                  const blank = { members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] };
-                  await dbSaveAppState('recurringApplied', []);
-                  setData(blank);
-                  saveToCache(blank);
+                }
+
+                // Supabase is empty — push cache up if we have one
+                if (cached && cached.members && cached.members.length > 0) {
+                  const cachedWithRecurring = applyRecurringBills(cached);
+                  setData(cachedWithRecurring);
+                  saveToCache(cachedWithRecurring);
+                  Object.entries(cachedWithRecurring).forEach(function(entry) {
+                    var key = entry[0]; var val = entry[1];
+                    if (key === 'recurringApplied') { dbSaveAppState('recurringApplied', val); }
+                    else if (Array.isArray(val) && val.length > 0) { dbSave(key, val); }
+                  });
                   setSyncStatus("ok");
                   return;
                 }
+
+                // Truly blank — new install
+                const blank = { members: [], tasks: [], events: [], transactions: [], recurring: [], notes: [], routines: [], recurringApplied: [] };
+                setData(blank);
+                saveToCache(blank);
+                setSyncStatus("ok");
+                return;
               }
             } catch(e) {
               console.warn('[TFH] Supabase load failed:', e.message);
